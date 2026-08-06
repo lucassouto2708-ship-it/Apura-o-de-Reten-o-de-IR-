@@ -140,6 +140,10 @@ function escapeHtml(str) {
 // - "pagamentos": "Relação Analítica de Pagamentos" (só tem Valor Pago, sem retenção -> retenção do arquivo = 0)
 function detectarFormato(texto) {
   const upper = texto.toUpperCase();
+  // "Relação de Pagamentos" — uma linha por lançamento (Tipo de Documento / Nº Pagamento /
+  // Data / Nº Liquidação / Nº Empenho / Elemento Despesa / Credor / CPF-CNPJ / Desconto /
+  // Valor Pagamento / Valor Desconto), colunas separadas por espaçamento largo (largura fixa).
+  if (upper.includes('TIPO DE DOCUMENTO') && upper.includes('ELEMENTO DESPESA')) return 'pagamentos-linha';
   if (upper.includes('RETENÇÃO') || upper.includes('RETENCAO')) return 'retencao';
   if (upper.includes('RELAÇÃO ANALÍTICA') || upper.includes('RELACAO ANALITICA') || upper.includes('VLR PAGAMENTO')) return 'pagamentos';
   return 'retencao'; // default: formato mais comum já suportado
@@ -269,9 +273,55 @@ function parseFormatoPagamentos(texto) {
 // quando o usuário edita a alíquota manualmente.
 let proximoLancamentoId = 1;
 
+// Formato "Relação de Pagamentos": uma linha por lançamento, colunas de largura fixa
+// (código de credor, código-descrição da despesa, credor, CPF/CNPJ, valor...) separadas
+// por grandes espaços em branco. Não tem coluna de retenção -> retencaoTxt fica em 0.
+function parseFormatoRelacaoPagamentosLinhaUnica(texto) {
+  const MONEY_TEST_RE = /^-?\d{1,3}(?:\.\d{3})*[,.]\d{2}$/;
+  const linhas = texto.split(/\r?\n/);
+  const registros = [];
+
+  for (const rawLine of linhas) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const docMatch = line.match(DOC_RE);
+    if (!docMatch) continue;
+
+    // Duas ou mais espaços seguidos = separador de coluna nesse layout de largura fixa.
+    const colunas = line.split(/\s{2,}/).map((c) => c.trim()).filter(Boolean);
+    const idxDoc = colunas.findIndex((c) => DOC_RE.test(c));
+    if (idxDoc <= 0) continue; // precisa ter pelo menos o nome do credor antes do documento
+
+    // Depois do documento vêm os valores (Desconto / Valor Pagamento / Valor Desconto,
+    // mas normalmente só "Valor Pagamento" vem preenchido) — pega o primeiro valor monetário.
+    const valorCol = colunas.slice(idxDoc + 1).find((c) => MONEY_TEST_RE.test(c));
+    if (!valorCol) continue;
+
+    const documento = docMatch[1];
+    registros.push({
+      nome: colunas[idxDoc - 1] || '(sem nome)',
+      documento,
+      isCnpj: onlyDigits(documento).length === 14,
+      valorPago: parseMoedaAuto(valorCol),
+      retencaoTxt: 0,
+      despesaDescricao: colunas[idxDoc - 2] || null,
+    });
+  }
+
+  return registros;
+}
+
 function parseLinhas(texto) {
   const formato = detectarFormato(texto);
-  const registros = formato === 'pagamentos' ? parseFormatoPagamentos(texto) : parseFormatoRetencao(texto);
+  let registros;
+  if (formato === 'pagamentos-linha') {
+    registros = parseFormatoRelacaoPagamentosLinhaUnica(texto);
+  } else if (formato === 'pagamentos') {
+    registros = parseFormatoPagamentos(texto);
+  } else {
+    registros = parseFormatoRetencao(texto);
+  }
   registros.forEach((r) => { r.id = proximoLancamentoId++; });
   return registros;
 }
@@ -348,10 +398,22 @@ fileInput.addEventListener('change', async () => {
       statusLine.style.display = 'none';
     }
   } else {
-    const text = await file.text();
+    const text = await lerTextoArquivo(file);
     txtInput.value = text;
   }
 });
+
+// Lê um .txt tentando UTF-8 primeiro; se não for UTF-8 válido, cai para Windows-1252
+// (ISO-8859-1) — comum em relatórios exportados por sistemas de prefeitura mais antigos,
+// que senão viram acentos quebrados ("Servi�os" em vez de "Serviços").
+async function lerTextoArquivo(file) {
+  const buffer = await file.arrayBuffer();
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+  } catch (e) {
+    return new TextDecoder('windows-1252').decode(buffer);
+  }
+}
 
 // Extrai o texto de um PDF preservando a ordem espacial dos itens (linha a linha),
 // já que relatórios como esse costumam vir com colunas em orientação/posição variada.
