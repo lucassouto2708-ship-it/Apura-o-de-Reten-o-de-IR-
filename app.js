@@ -394,9 +394,11 @@ fileInput.addEventListener('change', async () => {
     try {
       const buffer = await file.arrayBuffer();
       xlsxRegistros = parseFormatoXLSX(buffer);
+      const totalRegs = xlsxRegistros.reduce((s, g) => s + g.registros.length, 0);
+      const mesesStr = xlsxRegistros.map((g) => g.nome).join(', ');
       pararAnimacaoStatus();
       statusLine.classList.add('done');
-      setStatus(`Planilha carregada: ${xlsxRegistros.length} registro(s) identificado(s). Clique em Processar.`);
+      setStatus(`Planilha carregada: ${totalRegs} registro(s) em ${xlsxRegistros.length} mês(es) — ${mesesStr}. Clique em Processar.`);
       txtInput.value = ''; // não usa txtInput no caminho XLSX
     } catch (e) {
       pararAnimacaoStatus();
@@ -425,21 +427,23 @@ fileInput.addEventListener('change', async () => {
   }
 });
 
-// Parser para planilhas XLSX no formato "despesa.pagamento" (Betha/sistemas municipais):
-// lê as colunas num_doc_credor (N), nom_credor (O) e vlr_pag_fonte (Z).
-// A coluna vlr_ret_fonte (AA) é ignorada pois vem zerada nesses relatórios — a ferramenta
-// calcula a retenção esperada a partir do CNAE e usa 0 como retenção do relatório.
+const NOMES_MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+// Parser para planilhas XLSX no formato "despesa.pagamento" (Betha/sistemas municipais).
+// Agrupa os registros por mês (num_mes_referencia + num_ano_referencia), retornando um
+// array de { nome, registros } ordenado cronologicamente — cada mês vira um lote separado.
 function parseFormatoXLSX(arrayBuffer) {
   const wb = XLSX.read(arrayBuffer, { type: 'array' });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
 
-  // Identifica índices das colunas necessárias pelo cabeçalho (linha 0)
   const header = rows[0].map((h) => String(h).toLowerCase().trim());
   const iDoc  = header.indexOf('num_doc_credor');
   const iNome = header.indexOf('nom_credor');
   const iPago = header.indexOf('vlr_pag_fonte');
-  const iRet  = header.indexOf('vlr_ret_fonte'); // pode vir zerado; usa 0 quando ausente
+  const iRet  = header.indexOf('vlr_ret_fonte');
+  const iMes  = header.indexOf('num_mes_referencia');
+  const iAno  = header.indexOf('num_ano_referencia');
 
   if (iDoc === -1 || iNome === -1 || iPago === -1) {
     throw new Error(
@@ -447,15 +451,16 @@ function parseFormatoXLSX(arrayBuffer) {
     );
   }
 
-  const registros = [];
+  // Agrupa por chave "AAAAMM" para ordenar cronologicamente
+  const grupos = new Map();
+
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     let docRaw = String(row[iDoc] || '').replace(/\D/g, '');
-    // CNPJs salvos como número inteiro perdem zeros à esquerda (14 → 13 ou 12 dígitos)
     if (docRaw.length >= 12 && docRaw.length < 14) docRaw = docRaw.padStart(14, '0');
     if (docRaw.length !== 14 && docRaw.length !== 11) continue;
 
-    const valor = parseFloat(String(row[iValor] || '').replace(',', '.'));
+    const valor = parseFloat(String(row[iPago] || '').replace(',', '.'));
     if (isNaN(valor) || valor <= 0) continue;
 
     const isCnpj = docRaw.length === 14;
@@ -464,7 +469,15 @@ function parseFormatoXLSX(arrayBuffer) {
     const retBruta = iRet !== -1 ? parseFloat(String(row[iRet] || '').replace(',', '.')) : NaN;
     const retencaoTxt = (!isNaN(retBruta) && retBruta > 0) ? retBruta : 0;
 
-    registros.push({
+    const mes = iMes !== -1 ? parseInt(row[iMes]) || 0 : 0;
+    const ano = iAno !== -1 ? parseInt(row[iAno]) || 0 : 0;
+    const chave = `${ano}${String(mes).padStart(2, '0')}`; // ex: "202502"
+    const nomeMes = mes >= 1 && mes <= 12
+      ? `${NOMES_MESES[mes - 1]}/${ano}`
+      : (ano ? `${ano}` : 'Sem data');
+
+    if (!grupos.has(chave)) grupos.set(chave, { nome: nomeMes, registros: [] });
+    grupos.get(chave).registros.push({
       nome: String(row[iNome] || '').trim() || documento,
       documento,
       valorPago: valor,
@@ -472,7 +485,11 @@ function parseFormatoXLSX(arrayBuffer) {
       isCnpj,
     });
   }
-  return registros;
+
+  // Ordena cronologicamente pela chave AAAAMM
+  return [...grupos.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, g]) => g);
 }
 
 // Lê um .txt tentando UTF-8 primeiro; se não for UTF-8 válido, cai para Windows-1252
@@ -869,11 +886,48 @@ function mesclarResultados(existentes, novos) {
 async function processar() {
   hideError();
 
-  let registros;
+  // Caminho XLSX: processa cada mês como lote separado
   if (xlsxRegistros !== null) {
-    registros = xlsxRegistros;
+    const grupos = xlsxRegistros;
     xlsxRegistros = null;
-  } else {
+
+    if (grupos.length === 0) {
+      showError('Nenhum registro válido encontrado na planilha.');
+      return;
+    }
+
+    btnProcessar.disabled = true;
+    statusLine.classList.remove('done');
+    statusLine.style.display = 'flex';
+
+    for (const grupo of grupos) {
+      const { nome: origem, registros } = grupo;
+      const resultadosNovos = [];
+      for (let i = 0; i < registros.length; i++) {
+        const reg = { ...registros[i], origem };
+        setStatus(`[${origem}] Processando ${i + 1}/${registros.length}: ${reg.nome}...`);
+        resultadosNovos.push(await processarRegistro(reg));
+        await sleep(250);
+      }
+      lotes.push({ nome: origem, qtd: registros.length });
+      atualizarLotesBox();
+      const merged = mesclarResultados(ultimosResultados, resultadosNovos);
+      const { comDivergencia, somaDiferenca } = renderResultados(merged);
+      pararAnimacaoStatus();
+      setStatus(`"${origem}" processado (${registros.length} registro(s)) — ${comDivergencia > 0 ? `${comDivergencia} divergência(s), ${formatMoeda(Math.abs(somaDiferenca))}` : 'sem divergências'}.`);
+    }
+
+    statusLine.classList.add('done');
+    btnProcessar.disabled = false;
+    btnNovoLote.style.display = 'inline-flex';
+    fileInput.value = '';
+    origemInput.value = '';
+    return;
+  }
+
+  // Caminho texto (TXT/PDF)
+  let registros;
+  {
     const texto = txtInput.value;
     if (!texto.trim()) {
       showError('Cole o texto do relatório ou envie um arquivo .txt / .pdf / .xlsx.');
