@@ -436,11 +436,12 @@ function parseFormatoXLSX(arrayBuffer) {
 
   // Identifica índices das colunas necessárias pelo cabeçalho (linha 0)
   const header = rows[0].map((h) => String(h).toLowerCase().trim());
-  const iDoc   = header.indexOf('num_doc_credor');
-  const iNome  = header.indexOf('nom_credor');
-  const iValor = header.indexOf('vlr_pag_fonte');
+  const iDoc  = header.indexOf('num_doc_credor');
+  const iNome = header.indexOf('nom_credor');
+  const iPago = header.indexOf('vlr_pag_fonte');
+  const iRet  = header.indexOf('vlr_ret_fonte'); // pode vir zerado; usa 0 quando ausente
 
-  if (iDoc === -1 || iNome === -1 || iValor === -1) {
+  if (iDoc === -1 || iNome === -1 || iPago === -1) {
     throw new Error(
       'Colunas esperadas não encontradas. O arquivo deve ter num_doc_credor, nom_credor e vlr_pag_fonte.'
     );
@@ -460,11 +461,14 @@ function parseFormatoXLSX(arrayBuffer) {
     const isCnpj = docRaw.length === 14;
     const documento = isCnpj ? formatCnpj(docRaw) : docRaw.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
 
+    const retBruta = iRet !== -1 ? parseFloat(String(row[iRet] || '').replace(',', '.')) : NaN;
+    const retencaoTxt = (!isNaN(retBruta) && retBruta > 0) ? retBruta : 0;
+
     registros.push({
-      nome:        String(row[iNome] || '').trim() || documento,
+      nome: String(row[iNome] || '').trim() || documento,
       documento,
-      valorPago:   valor,
-      retencaoTxt: 0, // vlr_ret_fonte vem zerado nesse tipo de relatório
+      valorPago: valor,
+      retencaoTxt,
       isCnpj,
     });
   }
