@@ -371,21 +371,43 @@ if (window['pdfjsLib']) {
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
 }
 
+// Registros pré-parseados de um XLSX — bypassa a etapa de texto/parseLinhas.
+let xlsxRegistros = null;
+
 fileInput.addEventListener('change', async () => {
   const file = fileInput.files[0];
   if (!file) return;
 
   hideError();
+  xlsxRegistros = null; // limpa leitura anterior de XLSX
   if (!origemInput.value.trim()) {
-    origemInput.value = file.name.replace(/\.(pdf|txt)$/i, '');
+    origemInput.value = file.name.replace(/\.(pdf|txt|xlsx)$/i, '');
   }
-  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
 
-  if (isPdf) {
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  const isXlsx = /\.xlsx$/i.test(file.name);
+
+  if (isXlsx) {
+    statusLine.classList.remove('done');
+    statusLine.style.display = 'flex';
+    setStatus('Lendo planilha XLSX...');
+    try {
+      const buffer = await file.arrayBuffer();
+      xlsxRegistros = parseFormatoXLSX(buffer);
+      pararAnimacaoStatus();
+      statusLine.classList.add('done');
+      setStatus(`Planilha carregada: ${xlsxRegistros.length} registro(s) identificado(s). Clique em Processar.`);
+      txtInput.value = ''; // não usa txtInput no caminho XLSX
+    } catch (e) {
+      pararAnimacaoStatus();
+      showError('Falha ao ler o XLSX: ' + (e.message || e));
+      statusLine.style.display = 'none';
+    }
+  } else if (isPdf) {
     statusLine.classList.remove('done');
     statusLine.style.display = 'flex';
     setStatus('Extraindo texto do PDF...');
-    const orientacao = document.getElementById('orientacaoSelect').value; // 'auto' | 'retrato' | 'paisagem'
+    const orientacao = document.getElementById('orientacaoSelect').value;
     try {
       const text = await extrairTextoPdf(file, (msg) => setStatus(msg), orientacao);
       txtInput.value = text;
@@ -402,6 +424,52 @@ fileInput.addEventListener('change', async () => {
     txtInput.value = text;
   }
 });
+
+// Parser para planilhas XLSX no formato "despesa.pagamento" (Betha/sistemas municipais):
+// lê as colunas num_doc_credor (N), nom_credor (O) e vlr_pag_fonte (Z).
+// A coluna vlr_ret_fonte (AA) é ignorada pois vem zerada nesses relatórios — a ferramenta
+// calcula a retenção esperada a partir do CNAE e usa 0 como retenção do relatório.
+function parseFormatoXLSX(arrayBuffer) {
+  const wb = XLSX.read(arrayBuffer, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+  // Identifica índices das colunas necessárias pelo cabeçalho (linha 0)
+  const header = rows[0].map((h) => String(h).toLowerCase().trim());
+  const iDoc   = header.indexOf('num_doc_credor');
+  const iNome  = header.indexOf('nom_credor');
+  const iValor = header.indexOf('vlr_pag_fonte');
+
+  if (iDoc === -1 || iNome === -1 || iValor === -1) {
+    throw new Error(
+      'Colunas esperadas não encontradas. O arquivo deve ter num_doc_credor, nom_credor e vlr_pag_fonte.'
+    );
+  }
+
+  const registros = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    let docRaw = String(row[iDoc] || '').replace(/\D/g, '');
+    // CNPJs salvos como número inteiro perdem zeros à esquerda (14 → 13 ou 12 dígitos)
+    if (docRaw.length >= 12 && docRaw.length < 14) docRaw = docRaw.padStart(14, '0');
+    if (docRaw.length !== 14 && docRaw.length !== 11) continue;
+
+    const valor = parseFloat(String(row[iValor] || '').replace(',', '.'));
+    if (isNaN(valor) || valor <= 0) continue;
+
+    const isCnpj = docRaw.length === 14;
+    const documento = isCnpj ? formatCnpj(docRaw) : docRaw.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+
+    registros.push({
+      nome:        String(row[iNome] || '').trim() || documento,
+      documento,
+      valorPago:   valor,
+      retencaoTxt: 0, // vlr_ret_fonte vem zerado nesse tipo de relatório
+      isCnpj,
+    });
+  }
+  return registros;
+}
 
 // Lê um .txt tentando UTF-8 primeiro; se não for UTF-8 válido, cai para Windows-1252
 // (ISO-8859-1) — comum em relatórios exportados por sistemas de prefeitura mais antigos,
@@ -797,16 +865,21 @@ function mesclarResultados(existentes, novos) {
 async function processar() {
   hideError();
 
-  const texto = txtInput.value;
-  if (!texto.trim()) {
-    showError('Cole o texto do relatório ou envie um arquivo .txt.');
-    return;
-  }
-
-  const registros = parseLinhas(texto);
-  if (registros.length === 0) {
-    showError('Não foi possível identificar nenhum registro (CNPJ/CPF + valores) no texto colado. Confira o formato.');
-    return;
+  let registros;
+  if (xlsxRegistros !== null) {
+    registros = xlsxRegistros;
+    xlsxRegistros = null;
+  } else {
+    const texto = txtInput.value;
+    if (!texto.trim()) {
+      showError('Cole o texto do relatório ou envie um arquivo .txt / .pdf / .xlsx.');
+      return;
+    }
+    registros = parseLinhas(texto);
+    if (registros.length === 0) {
+      showError('Não foi possível identificar nenhum registro (CNPJ/CPF + valores) no texto colado. Confira o formato.');
+      return;
+    }
   }
 
   const origem = origemInput.value.trim() || `Relatório ${lotes.length + 1}`;
