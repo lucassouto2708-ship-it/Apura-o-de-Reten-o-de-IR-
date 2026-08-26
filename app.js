@@ -1470,7 +1470,7 @@ tabBtnNotif.addEventListener('click', () => {
     if (salvo && salvo.dados && salvo.dados.length) {
       ultimosResultados = salvo.dados;
       renderResultados(ultimosResultados);
-      renderNotifTab(`Sessão salva em ${fmtDataHoraLS(salvo.ts)} — ${salvo.dados.length} registros`);
+      renderNotifTab(`Sessão salva em ${fmtDataHoraLS(salvo.ts)}`);
       return;
     }
   }
@@ -1518,8 +1518,8 @@ function renderNotifTab(fonteLabel) {
   emptyEl.style.display = 'none';
   sessionBar.style.display = 'flex';
   empresasNotif = agruparPorEmpresa(ultimosResultados);
-  const tsLabel = fonteLabel ? fonteLabel.replace(/—\s*\d+\s*registros/, '').trim() : '';
-  sessionLbl.textContent = (tsLabel ? tsLabel + ' — ' : '') + `${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência`;
+  const prefix = fonteLabel ? fonteLabel.trim() + ' — ' : '';
+  sessionLbl.textContent = prefix + `${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência`;
   document.getElementById('nf-gerar-todas').style.display = 'flex';
 
   const fmtM = (v) => typeof v === 'number' ? formatMoeda(v) : '—';
@@ -1563,7 +1563,9 @@ function limparConfigNotif() {
   // Limpa dados carregados e volta ao estado vazio
   ultimosResultados = [];
   empresasNotif = [];
-  localStorage.removeItem('apuracao_ir_resultados');
+  lotes = [];
+  try { localStorage.removeItem(LS_KEY); } catch(e) {}
+  atualizarLotesBox();
   renderNotifTab();
   // Reseta input de arquivo
   const fi = document.getElementById('nf-file-input');
