@@ -1676,16 +1676,16 @@ async function fetchEndereco(cnpj) {
 async function gerarXlsxEmpresa(idx) {
   if (!window.XLSX) { alert('Biblioteca XLSX não carregou. Recarregue a página.'); return; }
   const emp = empresasNotif[idx];
-  const TOLERANCIA = 0.02;
-  const regs = emp.registros.filter(r =>
-    r.tipo !== 'excluido' && r.tipo !== 'erro' && (r.diferenca || 0) < -TOLERANCIA
-  );
+  // Mostra TODOS os registros válidos da empresa (o filtro de empresa negativa já foi feito em agruparPorEmpresa)
+  const regs = emp.registros.filter(r => r.tipo !== 'excluido' && r.tipo !== 'erro');
 
   let selicData = null;
   try { selicData = await getSelicMensal(); } catch(_) {}
 
   // Colunas: A=ITEM B=CREDOR C=CNPJ D=DATA E=VLR_BRUTO F=ALIQ G=IRRF_DEV H=IRRF_RET I=DIF J=SELIC K=ATUALIZADO
   const NC = 11;
+  const BRL = '#,##0.00';   // formato monetário 2 casas
+  const PCT = '0.0000';     // SELIC %
   const wb = XLSX.utils.book_new();
   const aoaTitulo = [['V. DEMONSTRATIVO ANÁLITICO DO CRÉDITO TRIBUTÁRIO APURADO', ...Array(NC-1).fill('')]];
   const aoaHeader = [['ITEM','CREDOR','CNPJ DO CREDOR','DATA LIQUIDAÇÃO','VALOR BRUTO','ALIQUOTA APLICAVEL','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA','INDICE COR. SELIC','VALOR ATUALIZADO']];
@@ -1701,24 +1701,24 @@ async function gerarXlsxEmpresa(idx) {
       r.nome,
       cnpjFmt,
       r.origem || '',
-      r.valorPago,
-      aliq,
-      { t:'n', f:`E${row}*F${row}/100` },
-      r.retencaoTxt,
-      { t:'n', f:`G${row}-H${row}` },
-      selic,
-      { t:'n', f:`I${row}+(I${row}*J${row}/100)` },
+      { t:'n', v: r.valorPago,      z: BRL },
+      { t:'n', v: aliq,             z: '0.0' },
+      { t:'n', f:`E${row}*F${row}/100`, z: BRL },
+      { t:'n', v: r.retencaoTxt,   z: BRL },
+      { t:'n', f:`G${row}-H${row}`, z: BRL },
+      { t:'n', v: selic,            z: PCT },
+      { t:'n', f:`I${row}+(I${row}*J${row}/100)`, z: BRL },
     ];
   });
 
   const last = regs.length + 2;
   const totalRow = [
     'TOTAL','','','',
-    { t:'n', f:`SUM(E3:E${last})` }, '',
-    { t:'n', f:`SUM(G3:G${last})` },
-    { t:'n', f:`SUM(H3:H${last})` },
-    { t:'n', f:`SUM(I3:I${last})` }, '',
-    { t:'n', f:`SUM(K3:K${last})` },
+    { t:'n', f:`SUM(E3:E${last})`, z: BRL }, '',
+    { t:'n', f:`SUM(G3:G${last})`, z: BRL },
+    { t:'n', f:`SUM(H3:H${last})`, z: BRL },
+    { t:'n', f:`SUM(I3:I${last})`, z: BRL }, '',
+    { t:'n', f:`SUM(K3:K${last})`, z: BRL },
   ];
 
   const aoa = [...aoaTitulo, ...aoaHeader, ...aoaData, totalRow];
@@ -1742,9 +1742,7 @@ async function gerarDocxEmpresa(idx) {
   const cfg    = lerConfigNotif();
   const dadosE = lerDadosEmpresa(idx);
 
-  const regs = emp.registros.filter(r =>
-    r.tipo !== 'excluido' && r.tipo !== 'erro' && (r.diferenca || 0) < -0.02
-  );
+  const regs = emp.registros.filter(r => r.tipo !== 'excluido' && r.tipo !== 'erro');
 
   // SELIC por mês + endereço (em paralelo)
   let selicData = null, endereco = null;
