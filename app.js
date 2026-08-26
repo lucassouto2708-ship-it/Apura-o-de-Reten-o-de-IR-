@@ -483,6 +483,7 @@ function parseFormatoXLSX(arrayBuffer) {
       valorPago: valor,
       retencaoTxt,
       isCnpj,
+      mesRef: ano * 100 + mes, // ex: 202502 — usado para não fundir lançamentos de meses diferentes
     });
   }
 
@@ -854,7 +855,12 @@ function mesclarResultados(existentes, novos) {
 
     const doc = chaveDocumento(novo);
     const candidatos = indicesPorDocumento.get(doc) || [];
-    const idxExistente = candidatos.find((i) => mesmoValor(resultado[i].valorPago, novo.valorPago));
+    const idxExistente = candidatos.find((i) => {
+      if (!mesmoValor(resultado[i].valorPago, novo.valorPago)) return false;
+      // Se ambos têm mesRef (vieram de XLSX), só funde quando o mês for o mesmo
+      if (resultado[i].mesRef && novo.mesRef && resultado[i].mesRef !== novo.mesRef) return false;
+      return true;
+    });
 
     if (idxExistente === undefined) {
       resultado.push(novo);
