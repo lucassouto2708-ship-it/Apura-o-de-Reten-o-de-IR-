@@ -1676,10 +1676,7 @@ async function fetchEndereco(cnpj) {
 async function gerarXlsxEmpresa(idx) {
   if (!window.XLSX) { alert('Biblioteca XLSX não carregou. Recarregue a página.'); return; }
   const emp = empresasNotif[idx];
-  // Apenas linhas onde o credor reteve a menos (diferença negativa) — pagamento a maior é excluído
-  const regs = emp.registros.filter(r =>
-    r.tipo !== 'excluido' && r.tipo !== 'erro' && (r.diferenca || 0) < -0.02
-  );
+  const regs = emp.registros.filter(r => r.tipo !== 'excluido' && r.tipo !== 'erro');
 
   let selicData = null;
   try { selicData = await getSelicMensal(); } catch(_) {}
