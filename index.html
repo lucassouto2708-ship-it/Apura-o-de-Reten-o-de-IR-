@@ -170,12 +170,49 @@
   .footer-note{ color:var(--muted); font-size:.78rem; line-height:1.5; margin-top:28px; }
   a{ color:var(--accent); }
 
+  /* ── Tabs ─────────────────────────────────────────────────── */
+  .tab-nav{ display:flex; gap:0; margin-bottom:24px; border-bottom:2px solid var(--border); }
+  .tab-btn{
+    padding:10px 22px; border:none; border-radius:0; background:transparent;
+    color:var(--muted); font-size:.88rem; font-weight:600; letter-spacing:.04em; cursor:pointer;
+    border-bottom:2px solid transparent; margin-bottom:-2px; transition:color .15s ease, border-color .15s ease;
+  }
+  .tab-btn.ativo{ color:var(--accent); border-bottom-color:var(--accent); }
+  .tab-btn:hover:not(.ativo){ color:var(--text); filter:none; }
+
+  /* ── Notification tab ─────────────────────────────────────── */
+  .nf-config-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:12px 20px; }
+  .nf-config-grid label{ margin-bottom:0; }
+  .nf-input{
+    width:100%; padding:8px 12px; border-radius:8px; border:1px solid var(--border);
+    background:var(--card2); color:var(--text); font-size:.88rem; outline:none;
+    font-family:inherit; margin-top:6px;
+  }
+  .nf-input:focus{ border-color:var(--accent); }
+  .empresa-card{ margin-bottom:16px; }
+  .empresa-card h3{ margin:0 0 4px; font-size:1rem; font-family:Georgia,serif; }
+  .empresa-cnpj{ color:var(--muted); font-size:.82rem; margin:0 0 16px; }
+  .nf-totais{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
+  .nf-total-chip{
+    background:var(--card2); border:1px solid var(--border); border-radius:8px;
+    padding:8px 12px; font-size:.78rem; text-align:center; flex:1 1 110px; min-width:110px;
+  }
+  .nf-total-chip .v{ font-weight:700; font-size:.9rem; display:block; }
+  .nf-total-chip .l{ color:var(--muted); font-size:.7rem; }
+  .nf-empresa-inputs{ display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:10px 20px; margin-bottom:14px; }
+  .nf-empresa-inputs label{ margin-bottom:0; }
+  .nf-btns{ display:flex; gap:8px; flex-wrap:wrap; }
+  .btn-docx{ background:rgba(30,78,140,.2); color:#7baee0; border:1px solid rgba(30,78,140,.4); font-size:.85rem; padding:9px 16px; }
+  .btn-xlsx{ background:rgba(22,131,91,.2); color:#5ec49a; border:1px solid rgba(22,131,91,.4); font-size:.85rem; padding:9px 16px; }
+  .nf-empty{ text-align:center; padding:48px 24px; color:var(--muted); }
+  .nf-section-label{ font-weight:700; font-size:.78rem; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:14px; }
+
   @media print{
     @page{ size:A4 landscape; margin:8mm 10mm; }
 
     /* ── Elementos ocultos na impressão ── */
     #inputCard, .footer-note, .export-row, #btnTema,
-    #lotesBox, #statusLine, #errorBox,
+    #lotesBox, #statusLine, #errorBox, .tab-nav, #tabNotif,
     .header-row button, details{ display:none !important; }
 
     /* ── Força paleta clara independente do tema ── */
@@ -275,6 +312,12 @@
   </div>
   <p class="sub">Cole (ou envie um .txt com) o relatório de retenção. Para cada CNPJ, consultamos a Receita (CNAE principal e opção pelo Simples) e comparamos a retenção informada no relatório com a que deveria ter sido aplicada, segundo a tabela de CNAE.</p>
 
+  <div class="tab-nav">
+    <button class="tab-btn ativo" id="tabBtnApuracao">Apuração</button>
+    <button class="tab-btn" id="tabBtnNotif">Notificações</button>
+  </div>
+
+  <div id="tabApuracao">
   <div class="card" id="inputCard">
     <label for="txtInput">Bloco de texto do relatório</label>
     <textarea id="txtInput" placeholder="Cole aqui as linhas do relatório, ex:&#10;11212 - ALEXANDRE SALMEN E WAGNER BORGES ADVOGADOS ASSOCIADOS 07.168.791/0001-02 JUNHO 12.000,00 460,80"></textarea>
@@ -354,6 +397,29 @@
     </div>
   </div>
 
+  </div><!-- /#tabApuracao -->
+
+  <!-- ── Tab Notificações ─────────────────────────────────── -->
+  <div id="tabNotif" style="display:none;">
+    <div class="card">
+      <div class="nf-section-label">Configuração da Notificação</div>
+      <div class="nf-config-grid">
+        <label>Município<input class="nf-input" id="nf-municipio" value="COROACI" placeholder="Município"></label>
+        <label>Estado<input class="nf-input" id="nf-estado" value="MG" placeholder="UF" style="max-width:80px;"></label>
+        <label>Nome do Auditor / Fiscal Tributário<input class="nf-input" id="nf-auditor" placeholder="Nome completo"></label>
+        <label>Matrícula<input class="nf-input" id="nf-matricula" placeholder="Nº da matrícula"></label>
+        <label>Data da Notificação<input class="nf-input" type="date" id="nf-data"></label>
+      </div>
+    </div>
+
+    <div id="nf-empresas"></div>
+
+    <div id="nf-empty" class="card nf-empty">
+      <div style="font-size:2.5rem;margin-bottom:12px;">📂</div>
+      <div>Processe um relatório na aba <strong>Apuração</strong> para gerar as notificações.</div>
+    </div>
+  </div><!-- /#tabNotif -->
+
   <div class="footer-note">
     Dados cadastrais e opção pelo Simples Nacional via <a href="https://brasilapi.com.br" target="_blank" rel="noopener">BrasilAPI</a> (fonte: Receita Federal).
     Alíquota calculada a partir do CNAE fiscal principal na tabela fornecida ("TABELA PARAMETRO CNAE"). Empresas optantes pelo Simples Nacional são consideradas com retenção esperada de 0%, conforme dispensa de retenção de tributos federais na fonte (LC 123/2006).
@@ -365,6 +431,8 @@
 <script src="pdf.min.js"></script>
 <script src="tesseract.min.js"></script>
 <script src="xlsx.full.min.js"></script>
+<script src="jszip.min.js"></script>
+<script src="notif-template.js"></script>
 <script src="cnae-data.js"></script>
 <script src="app.js"></script>
 </body>

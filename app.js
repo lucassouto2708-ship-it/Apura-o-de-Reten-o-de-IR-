@@ -1418,3 +1418,346 @@ document.getElementById('btnExportExcel2').addEventListener('click', exportarExc
 document.getElementById('btnExportPdf2').addEventListener('click', exportarPdf);
 btnReprocessarErros.addEventListener('click', reprocessarErros);
 btnReprocessarErros2.addEventListener('click', reprocessarErros);
+
+// =============================================================================
+// XXXXXXXXXXXXXXXXXXXXXXXXXX   NOTIFICAÇÕES   XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+// =============================================================================
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+const tabApuracao = document.getElementById('tabApuracao');
+const tabNotif    = document.getElementById('tabNotif');
+const tabBtnApur  = document.getElementById('tabBtnApuracao');
+const tabBtnNotif = document.getElementById('tabBtnNotif');
+
+tabBtnApur.addEventListener('click', () => {
+  tabApuracao.style.display = '';
+  tabNotif.style.display = 'none';
+  tabBtnApur.classList.add('ativo');
+  tabBtnNotif.classList.remove('ativo');
+});
+
+tabBtnNotif.addEventListener('click', () => {
+  tabApuracao.style.display = 'none';
+  tabNotif.style.display = '';
+  tabBtnApur.classList.remove('ativo');
+  tabBtnNotif.classList.add('ativo');
+  renderNotifTab();
+});
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let empresasNotif = [];   // built by renderNotifTab(), indexed by gerarXxx(idx)
+
+// ── Group results by company (CNPJ/CPF) ──────────────────────────────────────
+function agruparPorEmpresa(registros) {
+  const mapa = new Map();
+  for (const r of registros) {
+    if (r.tipo === 'excluido' || r.tipo === 'erro') continue;
+    const chave = onlyDigits(r.documento) || r.nome;
+    if (!mapa.has(chave)) {
+      mapa.set(chave, { nome: r.nome, documento: r.documento, registros: [] });
+    }
+    mapa.get(chave).registros.push(r);
+  }
+  return Array.from(mapa.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+
+// ── Render notification tab ───────────────────────────────────────────────────
+function renderNotifTab() {
+  const container = document.getElementById('nf-empresas');
+  const emptyEl   = document.getElementById('nf-empty');
+
+  if (!ultimosResultados.length) {
+    container.innerHTML = '';
+    emptyEl.style.display = '';
+    return;
+  }
+  emptyEl.style.display = 'none';
+
+  empresasNotif = agruparPorEmpresa(ultimosResultados);
+
+  const fmtM = (v) => typeof v === 'number' ? formatMoeda(v) : '—';
+
+  container.innerHTML = empresasNotif.map((emp, idx) => {
+    const totalBruto    = emp.registros.reduce((s, r) => s + (r.valorPago         || 0), 0);
+    const totalDevido   = emp.registros.reduce((s, r) => s + (r.retencaoEsperada  || 0), 0);
+    const totalRetido   = emp.registros.reduce((s, r) => s + (r.retencaoTxt       || 0), 0);
+    const totalDif      = emp.registros.reduce((s, r) => s + (Math.min(r.diferenca || 0, 0)), 0);
+    const cnpjFmt = formatCnpj(onlyDigits(emp.documento));
+
+    return `<div class="card empresa-card" id="empresa-card-${idx}">
+      <h3>${escapeHtml(emp.nome)}</h3>
+      <p class="empresa-cnpj">${cnpjFmt || emp.documento}</p>
+      <div class="nf-totais">
+        <div class="nf-total-chip"><span class="v">${fmtM(totalBruto)}</span><span class="l">Valor Bruto</span></div>
+        <div class="nf-total-chip"><span class="v">${fmtM(totalDevido)}</span><span class="l">IRRF Devido</span></div>
+        <div class="nf-total-chip"><span class="v">${fmtM(totalRetido)}</span><span class="l">IRRF Retido</span></div>
+        <div class="nf-total-chip" style="color:var(--red)"><span class="v">${fmtM(Math.abs(totalDif))}</span><span class="l">Diferença</span></div>
+      </div>
+      <div class="nf-empresa-inputs">
+        <label>Nº da Notificação<input class="nf-input" id="nf-numnotif-${idx}" placeholder="Número/Ano"></label>
+        <label>Processo / Contrato<input class="nf-input" id="nf-proc-${idx}" placeholder="Nº do processo ou contrato"></label>
+        <label>Nota(s) de Empenho<input class="nf-input" id="nf-emp-${idx}" placeholder="Ex: 12 LIQ.05, 510 LIQ.04…"></label>
+        <label>SELIC acumulado (%)<input class="nf-input" type="number" id="nf-selic-${idx}" value="0" step="0.01" min="0"></label>
+      </div>
+      <div class="nf-btns">
+        <button class="btn-docx" onclick="gerarDocxEmpresa(${idx})">📄 Gerar DOCX</button>
+        <button class="btn-xlsx" onclick="gerarXlsxEmpresa(${idx})">📊 Gerar XLSX</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function lerConfigNotif() {
+  const dataEl = document.getElementById('nf-data');
+  let dataVal = dataEl.value;
+  if (!dataVal) {
+    const hoje = new Date();
+    dataVal = `${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}-${String(hoje.getDate()).padStart(2,'0')}`;
+  }
+  return {
+    municipio : document.getElementById('nf-municipio').value.trim() || 'COROACI',
+    estado    : document.getElementById('nf-estado').value.trim().toUpperCase() || 'MG',
+    auditor   : document.getElementById('nf-auditor').value.trim() || '[Nome do Auditor]',
+    matricula : document.getElementById('nf-matricula').value.trim() || '[Matrícula]',
+    data      : dataVal,
+  };
+}
+
+function lerDadosEmpresa(idx) {
+  return {
+    numNotif : document.getElementById(`nf-numnotif-${idx}`).value.trim() || '[Número/Ano]',
+    processo : document.getElementById(`nf-proc-${idx}`).value.trim() || '[Inserir: Número do Processo Licitatório / Contrato Administrativo]',
+    empenho  : document.getElementById(`nf-emp-${idx}`).value.trim() || '[Inserir: Notas de Empenho]',
+    selic    : parseFloat(document.getElementById(`nf-selic-${idx}`).value) || 0,
+  };
+}
+
+function sanitizarNomeArquivo(nome) {
+  return nome.replace(/[^a-zA-Z0-9À-ÿ\s]/g, '').replace(/\s+/g, '_').substring(0, 60);
+}
+
+// ── XLSX generation ───────────────────────────────────────────────────────────
+function gerarXlsxEmpresa(idx) {
+  if (!window.XLSX) { alert('Biblioteca XLSX não carregou. Recarregue a página.'); return; }
+  const emp    = empresasNotif[idx];
+  const dadosE = lerDadosEmpresa(idx);
+  const selic  = dadosE.selic;
+
+  const regs = emp.registros.filter(r => r.tipo !== 'excluido' && r.tipo !== 'erro');
+
+  const wb = XLSX.utils.book_new();
+  const aoaTitulo = [['V. DEMONSTRATIVO ANÁLITICO DO CRÉDITO TRIBUTÁRIO APURADO', '', '', '', '', '', '', '', '', '', '', '', '']];
+  const aoaHeader = [['ITEM','N EMPENHO/LIQUIDAÇÃO','CREDOR','CNPJ DO CREDOR','N DOCUMENTO FISCAL','DATA LIQUIDAÇÃO','VALOR BRUTO','ALIQUOTA APLICAVEL','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA','INDICE COR. SELIC','VALOR ATUALIZADO']];
+
+  const aoaData = regs.map((r, i) => {
+    const row = i + 3; // Excel row index (1-indexed, data starts at row 3)
+    const aliq = (r.aliquota != null) ? r.aliquota
+                 : (r.retencaoEsperada && r.valorPago ? (r.retencaoEsperada / r.valorPago * 100) : 0);
+    const cnpjFmt = formatCnpj(onlyDigits(r.documento)) || r.documento;
+    const dataLiq = r.origem || '';
+    return [
+      i + 1,
+      '',       // N EMPENHO/LIQUIDAÇÃO — user fills
+      r.nome,
+      cnpjFmt,
+      '',       // N DOCUMENTO FISCAL — user fills
+      dataLiq,  // DATA LIQUIDAÇÃO (mês de referência)
+      r.valorPago,
+      aliq,
+      { t:'n', f:`G${row}*H${row}/100` },
+      r.retencaoTxt,
+      { t:'n', f:`I${row}-J${row}` },
+      selic,
+      { t:'n', f:`K${row}+(K${row}*L${row}/100)` },
+    ];
+  });
+
+  const lastDataRow = regs.length + 2;
+  const totalRow = [
+    'TOTAL','','','','','',
+    { t:'n', f:`SUM(G3:G${lastDataRow})` },
+    '',
+    { t:'n', f:`SUM(I3:I${lastDataRow})` },
+    '',
+    { t:'n', f:`SUM(K3:K${lastDataRow})` },
+    '',
+    { t:'n', f:`SUM(M3:M${lastDataRow})` },
+  ];
+
+  const aoa = [...aoaTitulo, ...aoaHeader, ...aoaData, totalRow];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+  // Merge title row A1:M1
+  ws['!merges'] = [{ s:{r:0,c:0}, e:{r:0,c:12} }];
+  ws['!cols'] = [
+    {wch:4},{wch:18},{wch:36},{wch:22},{wch:18},{wch:16},
+    {wch:14},{wch:10},{wch:14},{wch:12},{wch:14},{wch:10},{wch:16},
+  ];
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Demonstrativo');
+  XLSX.writeFile(wb, `ANEXO ${sanitizarNomeArquivo(emp.nome)}.xlsx`);
+}
+
+// ── DOCX generation (JSZip + XML manipulation) ────────────────────────────────
+async function gerarDocxEmpresa(idx) {
+  if (typeof JSZip === 'undefined') { alert('JSZip não carregou. Recarregue a página.'); return; }
+  if (typeof DOCX_TEMPLATE_B64 === 'undefined') { alert('Template DOCX não carregou. Recarregue a página.'); return; }
+
+  const emp    = empresasNotif[idx];
+  const cfg    = lerConfigNotif();
+  const dadosE = lerDadosEmpresa(idx);
+
+  const selic = dadosE.selic;
+  const regs  = emp.registros.filter(r => r.tipo !== 'excluido' && r.tipo !== 'erro');
+
+  const valorPrincipal = regs.reduce((s, r) => s + Math.abs(Math.min(r.diferenca || 0, 0)), 0);
+  const atualizacao    = valorPrincipal * selic / 100;
+  const totalConsol    = valorPrincipal + atualizacao;
+
+  const fmtBRL = (v) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const dt  = new Date(cfg.data + 'T12:00:00');
+  const dia = dt.getDate().toString();
+  const mes = MESES[dt.getMonth()];
+  const ano = dt.getFullYear().toString();
+
+  const cnpjFmtDocx = formatCnpj(onlyDigits(emp.documento));
+
+  // Decode base64 template
+  const b64 = DOCX_TEMPLATE_B64;
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+
+  const zip = await JSZip.loadAsync(bytes.buffer);
+  let docXml = await zip.file('word/document.xml').async('string');
+
+  // Map: concatenated yellow text (from template) → replacement value
+  const repMap = new Map([
+    ['COROACI', cfg.municipio],
+    ['Nº [Inserir: Número/Ano]', 'Nº ' + dadosE.numNotif],
+    ['PORTO SEGURO CIA DE SEGUROS GERAIS', emp.nome],
+    ['61.198.164.0001-60', cnpjFmtDocx || emp.documento],
+    ['[Inserir: Número da Inscrição]', '[Inserir: Número da Inscrição]'],
+    ['AV: RIO BRANCO Nº1489, BAIRRO: CAMPOS ELIESOS, SÃO PAULO – SP, CEP 01.205.001', '[Endereço completo do credor]'],
+    // R$ values handled in order below
+    ['Coroci – MG', cfg.municipio + ' – MG'],
+    // Date: concatenated from 6 runs
+    [`COROACI/MG, 20 de Agosto de 2026`, `${cfg.municipio}/${cfg.estado}, ${dia} de ${mes} de ${ano}`],
+    // Auditor
+    ['[Inserir]: Nome do Auditor / Fiscal Tributário]', cfg.auditor],
+    ['[Inserir: Matrícula]', cfg.matricula],
+  ]);
+
+  // R$ values appear in order: principal, atualização, total
+  const rsBRLQueue = [
+    'R$' + fmtBRL(valorPrincipal),
+    'R$' + fmtBRL(atualizacao),
+    'R$' + fmtBRL(totalConsol),
+  ];
+  let rsBRLIdx = 0;
+
+  const WNS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const parser = new DOMParser();
+  const xmlDoc = parser.parseFromString(docXml, 'text/xml');
+
+  // Process all paragraphs
+  const paragraphs = Array.from(xmlDoc.getElementsByTagNameNS(WNS, 'p'));
+  for (const para of paragraphs) {
+    const allRuns = Array.from(para.getElementsByTagNameNS(WNS, 'r'));
+    let i = 0;
+    while (i < allRuns.length) {
+      if (!_isYellowRun(allRuns[i], WNS)) { i++; continue; }
+
+      // Collect consecutive yellow runs
+      const group = [allRuns[i]];
+      let j = i + 1;
+      while (j < allRuns.length && _isYellowRun(allRuns[j], WNS)) {
+        group.push(allRuns[j]);
+        j++;
+      }
+
+      const groupText = group.map(r => _getRunText(r, WNS)).join('');
+      let replacement = null;
+
+      if (repMap.has(groupText)) {
+        replacement = repMap.get(groupText);
+      } else if (groupText.startsWith('R$') && rsBRLIdx < rsBRLQueue.length) {
+        replacement = rsBRLQueue[rsBRLIdx++];
+      }
+
+      if (replacement !== null) {
+        _setRunText(group[0], replacement, WNS);
+        for (let k = 1; k < group.length; k++) _setRunText(group[k], '', WNS);
+        for (const gr of group) _removeHighlight(gr, WNS);
+      }
+
+      i = j;
+    }
+  }
+
+  // Replace non-yellow hardcoded fields via string replacement
+  const serializer = new XMLSerializer();
+  let newXml = serializer.serializeToString(xmlDoc);
+
+  // Processo/Contrato
+  newXml = newXml.replace(
+    /\[Inserir: Número do Processo Licitatório \/ Contrato Administrativo\]/,
+    _xmlEscape(dadosE.processo)
+  );
+  // Nota de Empenho (the hardcoded empenho list from the template example)
+  newXml = newXml.replace(
+    /12 LIQUIDAÇÃO 05 E 06, 510 LIQ\.04, 894 LIQ\. 04, 1312 LIQ\. 03, 1709 LIQ\. 02\./,
+    _xmlEscape(dadosE.empenho)
+  );
+
+  zip.file('word/document.xml', newXml);
+  const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `NOTIFICACAO ${sanitizarNomeArquivo(emp.nome)}.docx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// ── DOCX XML helpers ──────────────────────────────────────────────────────────
+function _isYellowRun(run, ns) {
+  const rpr = run.getElementsByTagNameNS(ns, 'rPr')[0];
+  if (!rpr) return false;
+  const hl = rpr.getElementsByTagNameNS(ns, 'highlight')[0];
+  if (!hl) return false;
+  return hl.getAttributeNS(ns, 'val') === 'yellow';
+}
+
+function _getRunText(run, ns) {
+  const t = run.getElementsByTagNameNS(ns, 't')[0];
+  return t ? (t.textContent || '') : '';
+}
+
+function _setRunText(run, text, ns) {
+  const t = run.getElementsByTagNameNS(ns, 't')[0];
+  if (!t) return;
+  t.textContent = text;
+  if (text && /^\s|\s$/.test(text)) t.setAttribute('xml:space', 'preserve');
+}
+
+function _removeHighlight(run, ns) {
+  const rpr = run.getElementsByTagNameNS(ns, 'rPr')[0];
+  if (!rpr) return;
+  const hl = rpr.getElementsByTagNameNS(ns, 'highlight')[0];
+  if (hl) rpr.removeChild(hl);
+}
+
+function _xmlEscape(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
