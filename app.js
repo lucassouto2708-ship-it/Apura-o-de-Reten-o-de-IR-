@@ -1809,6 +1809,13 @@ async function gerarDocxEmpresa(idx) {
   const parser = new DOMParser();
   const xmlDoc = parser.parseFromString(docXml, 'text/xml');
 
+  // Remove parágrafos de Inscrição Municipal e Processo Administrativo/Contrato
+  const REMOVE_PHRASES = ['Inscrição Municipal', 'Processo Administrativo / Contrato'];
+  Array.from(xmlDoc.getElementsByTagNameNS(WNS, 'p')).forEach(para => {
+    const txt = Array.from(para.getElementsByTagNameNS(WNS, 't')).map(t => t.textContent).join('');
+    if (REMOVE_PHRASES.some(p => txt.includes(p))) para.parentNode.removeChild(para);
+  });
+
   // Process all paragraphs
   const paragraphs = Array.from(xmlDoc.getElementsByTagNameNS(WNS, 'p'));
   for (const para of paragraphs) {
