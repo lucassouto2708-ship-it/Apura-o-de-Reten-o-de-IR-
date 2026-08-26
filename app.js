@@ -1393,6 +1393,9 @@ function exportarPdf() {
   if (!ultimosResultados.length) return;
   const tituloOriginal = document.title;
   document.title = nomeArquivoComData('pdf').replace(/\.pdf$/, '');
+  const wrap = document.querySelector('.wrap');
+  const dataHora = new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  wrap.setAttribute('data-print-date', dataHora);
   window.print();
   document.title = tituloOriginal;
 }

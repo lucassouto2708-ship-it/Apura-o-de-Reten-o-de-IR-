@@ -170,15 +170,92 @@
   a{ color:var(--accent); }
 
   @media print{
-    body{ background:#fff; color:#000; padding:0; display:block; }
-    #inputCard, .footer-note, .export-row{ display:none !important; }
-    h1{ margin-top:0; }
-    table{ font-size:.72rem; }
-    th{ position:static; background:#eee !important; color:#333 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    tr.diff-row{ background:#fdeceb !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    tr.ok-row{ background:#eafaf3 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    .summary{ break-inside:avoid; }
-    .stat{ border:1px solid #ccc; }
+    @page{ size:A4 landscape; margin:8mm 10mm; }
+
+    /* ── Elementos ocultos na impressão ── */
+    #inputCard, .footer-note, .export-row, #btnTema,
+    #lotesBox, #statusLine, #errorBox,
+    .header-row button, details{ display:none !important; }
+
+    /* ── Base ── */
+    *, *::before, *::after{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    html, body{ background:#fff !important; color:#111 !important;
+      font-family:'Segoe UI',Arial,sans-serif; font-size:9pt;
+      padding:0; margin:0; display:block; }
+
+    /* ── Cabeçalho de impressão ── */
+    .wrap::before{
+      content:"Apuração de Retenção de IR por CNAE — " attr(data-print-date);
+      display:block; font-size:8pt; font-weight:700; color:#333;
+      border-bottom:1.5pt solid #222; padding-bottom:3mm; margin-bottom:4mm;
+      letter-spacing:.02em;
+    }
+    h1{ display:none; }
+    .sub{ display:none; }
+
+    /* ── Cards de resumo ── */
+    .summary{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:5mm; break-inside:avoid; }
+    .summary-totals{ flex-wrap:nowrap; }
+    .stat{
+      flex:1 1 auto; background:#f7f7f7 !important; border:1pt solid #ccc !important;
+      border-radius:3pt; padding:5px 8px; text-align:center; animation:none;
+    }
+    .stat .n{ font-size:11pt; font-weight:700; }
+    .stat .l{ font-size:6.5pt; color:#666; margin-top:2px; }
+    .stat.ok .n{ color:#1a7a50 !important; }
+    .stat.diff .n{ color:#b83030 !important; }
+    .stat.warn .n{ color:#8a6a10 !important; }
+
+    /* ── Tabela ── */
+    .table-wrap{ overflow:visible; padding:0; }
+    table{
+      width:100%; border-collapse:collapse; font-size:7pt;
+      table-layout:fixed; page-break-inside:auto;
+    }
+    thead{ display:table-header-group; } /* repete cabeçalho a cada página */
+    tr{ page-break-inside:avoid; }
+
+    th{
+      position:static; background:#2c2c2c !important; color:#fff !important;
+      font-size:6pt; text-transform:uppercase; letter-spacing:.03em;
+      padding:4px 4px; border:none; border-bottom:1.5pt solid #111;
+      white-space:normal; vertical-align:bottom;
+    }
+    td{
+      padding:3px 4px; border-bottom:.5pt solid #ddd;
+      font-size:7pt; vertical-align:top; word-break:break-word; white-space:normal;
+    }
+    td.num{ text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+
+    /* ── Linhas coloridas ── */
+    tr.diff-row{ background:#fdf0ef !important; }
+    tr.ok-row{ background:#f0faf5 !important; }
+    tr.diff-row td{ border-bottom:.5pt solid #e8c4c4; }
+
+    /* ── Badges ── */
+    .badge{ padding:1px 5px; border-radius:2pt; font-size:6pt; font-weight:700; }
+    .badge.simples{ background:#d4f2e4 !important; color:#1a7a50 !important; }
+    .badge.nao-simples{ background:#fde8e8 !important; color:#b83030 !important; }
+    .badge.pf{ background:#fef4d8 !important; color:#7a5500 !important; }
+    .badge.excluido{ background:#efefef !important; color:#555 !important; }
+    .badge.erro{ background:#fde8e8 !important; color:#b83030 !important; }
+    .badge.origem{ background:#e8f4f2 !important; color:#1a5c54 !important; font-size:6pt; }
+    .badge.fundido{ background:#fef4d8 !important; color:#7a5500 !important; font-size:6pt; }
+
+    /* ── Input de alíquota → texto simples ── */
+    .aliquota-input{
+      border:none; background:transparent; width:auto;
+      font-size:7pt; font-weight:700; color:#111; padding:0;
+    }
+
+    /* ── Larguras das colunas para paisagem A4 ── */
+    #resultsTable col.col-credor  { width:18%; }
+    #resultsTable col.col-doc     { width:11%; }
+    #resultsTable col.col-situacao{ width:8%;  }
+    #resultsTable col.col-cnae    { width:7%;  }
+    #resultsTable col.col-aliquota{ width:5%;  }
+    #resultsTable col.col-origem  { width:9%;  }
+    #resultsTable col.col-num     { width:10.5%; }
   }
 </style>
 </head>
