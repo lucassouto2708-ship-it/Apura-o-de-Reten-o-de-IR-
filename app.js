@@ -1482,6 +1482,7 @@ let empresasNotif = [];   // built by renderNotifTab(), indexed by gerarXxx(idx)
 
 // ── Group results by company (CNPJ/CPF) ──────────────────────────────────────
 function agruparPorEmpresa(registros) {
+  const TOLERANCIA = 0.02;
   const mapa = new Map();
   for (const r of registros) {
     if (r.tipo === 'excluido' || r.tipo === 'erro') continue;
@@ -1491,7 +1492,13 @@ function agruparPorEmpresa(registros) {
     }
     mapa.get(chave).registros.push(r);
   }
-  return Array.from(mapa.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  // Só empresas com diferença negativa (reteve a menos que o devido)
+  return Array.from(mapa.values())
+    .filter(emp => {
+      const totalDif = emp.registros.reduce((s, r) => s + (r.diferenca || 0), 0);
+      return totalDif < -TOLERANCIA;
+    })
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 }
 
 // ── Render notification tab ───────────────────────────────────────────────────
@@ -1593,7 +1600,10 @@ function gerarXlsxEmpresa(idx) {
   const dadosE = lerDadosEmpresa(idx);
   const selic  = dadosE.selic;
 
-  const regs = emp.registros.filter(r => r.tipo !== 'excluido' && r.tipo !== 'erro');
+  const TOLERANCIA = 0.02;
+  const regs = emp.registros.filter(r =>
+    r.tipo !== 'excluido' && r.tipo !== 'erro' && (r.diferenca || 0) < -TOLERANCIA
+  );
 
   const wb = XLSX.utils.book_new();
   const aoaTitulo = [['V. DEMONSTRATIVO ANÁLITICO DO CRÉDITO TRIBUTÁRIO APURADO', '', '', '', '', '', '', '', '', '', '', '', '']];
@@ -1658,7 +1668,9 @@ async function gerarDocxEmpresa(idx) {
   const dadosE = lerDadosEmpresa(idx);
 
   const selic = dadosE.selic;
-  const regs  = emp.registros.filter(r => r.tipo !== 'excluido' && r.tipo !== 'erro');
+  const regs  = emp.registros.filter(r =>
+    r.tipo !== 'excluido' && r.tipo !== 'erro' && (r.diferenca || 0) < -0.02
+  );
 
   const valorPrincipal = regs.reduce((s, r) => s + Math.abs(Math.min(r.diferenca || 0, 0)), 0);
   const atualizacao    = valorPrincipal * selic / 100;
