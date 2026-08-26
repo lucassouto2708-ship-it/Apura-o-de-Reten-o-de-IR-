@@ -1494,7 +1494,6 @@ function renderNotifTab() {
         <div class="nf-total-chip" style="color:var(--red)"><span class="v">${fmtM(Math.abs(totalDif))}</span><span class="l">Diferença</span></div>
       </div>
       <div class="nf-empresa-inputs">
-        <label>Nº da Notificação<input class="nf-input" id="nf-numnotif-${idx}" placeholder="Número/Ano"></label>
         <label>Processo / Contrato<input class="nf-input" id="nf-proc-${idx}" placeholder="Nº do processo ou contrato"></label>
         <label>Nota(s) de Empenho<input class="nf-input" id="nf-emp-${idx}" placeholder="Ex: 12 LIQ.05, 510 LIQ.04…"></label>
         <label>SELIC acumulado (%)<input class="nf-input" type="number" id="nf-selic-${idx}" value="0" step="0.01" min="0"></label>
@@ -1515,18 +1514,28 @@ function lerConfigNotif() {
     const hoje = new Date();
     dataVal = `${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}-${String(hoje.getDate()).padStart(2,'0')}`;
   }
+  const numIni = parseInt(document.getElementById('nf-numini').value, 10) || 1;
+  const ano = dataVal.split('-')[0];
   return {
     municipio : document.getElementById('nf-municipio').value.trim() || 'COROACI',
     estado    : document.getElementById('nf-estado').value.trim().toUpperCase() || 'MG',
     auditor   : document.getElementById('nf-auditor').value.trim() || '[Nome do Auditor]',
     matricula : document.getElementById('nf-matricula').value.trim() || '[Matrícula]',
     data      : dataVal,
+    numIni,
+    ano,
   };
+}
+
+function numNotifForIdx(idx) {
+  const cfg = lerConfigNotif();
+  const num = String(cfg.numIni + idx).padStart(3, '0');
+  return `${num}/${cfg.ano}`;
 }
 
 function lerDadosEmpresa(idx) {
   return {
-    numNotif : document.getElementById(`nf-numnotif-${idx}`).value.trim() || '[Número/Ano]',
+    numNotif : numNotifForIdx(idx),
     processo : document.getElementById(`nf-proc-${idx}`).value.trim() || '[Inserir: Número do Processo Licitatório / Contrato Administrativo]',
     empenho  : document.getElementById(`nf-emp-${idx}`).value.trim() || '[Inserir: Notas de Empenho]',
     selic    : parseFloat(document.getElementById(`nf-selic-${idx}`).value) || 0,
