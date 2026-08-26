@@ -1676,8 +1676,10 @@ async function fetchEndereco(cnpj) {
 async function gerarXlsxEmpresa(idx) {
   if (!window.XLSX) { alert('Biblioteca XLSX não carregou. Recarregue a página.'); return; }
   const emp = empresasNotif[idx];
-  // Mostra TODOS os registros válidos da empresa (o filtro de empresa negativa já foi feito em agruparPorEmpresa)
-  const regs = emp.registros.filter(r => r.tipo !== 'excluido' && r.tipo !== 'erro');
+  // Apenas linhas onde o credor reteve a menos (diferença negativa) — pagamento a maior é excluído
+  const regs = emp.registros.filter(r =>
+    r.tipo !== 'excluido' && r.tipo !== 'erro' && (r.diferenca || 0) < -0.02
+  );
 
   let selicData = null;
   try { selicData = await getSelicMensal(); } catch(_) {}
@@ -1705,7 +1707,7 @@ async function gerarXlsxEmpresa(idx) {
       { t:'n', v: aliq,             z: '0.0' },
       { t:'n', f:`E${row}*F${row}/100`, z: BRL },
       { t:'n', v: r.retencaoTxt,   z: BRL },
-      { t:'n', f:`MAX(G${row}-H${row},0)`, z: BRL },
+      { t:'n', f:`G${row}-H${row}`, z: BRL },
       { t:'n', v: selic,                  z: PCT },
       { t:'n', f:`I${row}+(I${row}*J${row}/100)`, z: BRL },
     ];
