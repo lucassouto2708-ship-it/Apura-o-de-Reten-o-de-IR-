@@ -1177,7 +1177,19 @@ function renderResultados(resultados) {
   let somaTxt = 0;
   let somaDiferenca = 0;
 
-  const linhasHtml = aplicarOrdenacao(resultados).map((r) => {
+  let mesAtual = null;
+  const linhasOrdenadas = aplicarOrdenacao(resultados);
+  const linhasHtml = linhasOrdenadas.map((r) => {
+    // Divisor de mês: inserido antes da primeira linha de cada novo mês
+    let divisor = '';
+    const origem = r.origem || '';
+    if (origem && origem !== mesAtual) {
+      if (mesAtual !== null) {
+        divisor = `<tr class="mes-divider"><td colspan="10">${escapeHtml(origem)}</td></tr>`;
+      }
+      mesAtual = origem;
+    }
+    return divisor + ((r) => {
     if (r.duplicado) fundidos++;
     if (r.tipo === 'excluido') {
       excluidos++;
@@ -1259,7 +1271,7 @@ function renderResultados(resultados) {
       <td class="num">${formatMoeda(r.retencaoTxt)}</td>
       <td class="num" style="color:${divergente ? 'var(--red)' : 'var(--green)'};font-weight:700;">${r.diferenca >= 0 ? '+' : ''}${formatMoeda(r.diferenca)}</td>
     </tr>`;
-  }).join('');
+  })(r); }).join('');
 
   resultsBody.innerHTML = linhasHtml;
 
