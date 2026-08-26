@@ -1543,7 +1543,6 @@ function renderNotifTab(fonteLabel) {
       <div class="nf-empresa-inputs">
         <label>Processo / Contrato<input class="nf-input" id="nf-proc-${idx}" placeholder="Nº do processo ou contrato"></label>
         <label>Nota(s) de Empenho<input class="nf-input" id="nf-emp-${idx}" placeholder="Ex: 12 LIQ.05, 510 LIQ.04…"></label>
-        <label>SELIC acumulado (%)<input class="nf-input" type="number" id="nf-selic-${idx}" value="0" step="0.01" min="0"></label>
       </div>
       <div class="nf-btns">
         <button class="btn-docx" onclick="gerarDocxEmpresa(${idx})">📄 Gerar DOCX</button>
@@ -1585,7 +1584,7 @@ function lerDadosEmpresa(idx) {
     numNotif : numNotifForIdx(idx),
     processo : document.getElementById(`nf-proc-${idx}`).value.trim() || '[Inserir: Número do Processo Licitatório / Contrato Administrativo]',
     empenho  : document.getElementById(`nf-emp-${idx}`).value.trim() || '[Inserir: Notas de Empenho]',
-    selic    : parseFloat(document.getElementById(`nf-selic-${idx}`).value) || 0,
+    selic    : 0, // auto-calculado via BCB
   };
 }
 
@@ -1593,64 +1592,119 @@ function sanitizarNomeArquivo(nome) {
   return nome.replace(/[^a-zA-Z0-9À-ÿ\s]/g, '').replace(/\s+/g, '_').substring(0, 60);
 }
 
-// ── XLSX generation ───────────────────────────────────────────────────────────
-function gerarXlsxEmpresa(idx) {
-  if (!window.XLSX) { alert('Biblioteca XLSX não carregou. Recarregue a página.'); return; }
-  const emp    = empresasNotif[idx];
-  const dadosE = lerDadosEmpresa(idx);
-  const selic  = dadosE.selic;
+// ── SELIC (BCB API) ───────────────────────────────────────────────────────────
+const MESES_NOME = {
+  'janeiro':1,'fevereiro':2,'março':3,'marco':3,'abril':4,'maio':5,'junho':6,
+  'julho':7,'agosto':8,'setembro':9,'outubro':10,'novembro':11,'dezembro':12
+};
+let _selicCache = null;
 
+async function getSelicMensal() {
+  if (_selicCache) return _selicCache;
+  const hoje = new Date();
+  const fim = `${String(hoje.getDate()).padStart(2,'0')}/${String(hoje.getMonth()+1).padStart(2,'0')}/${hoje.getFullYear()}`;
+  const ini = `01/01/${hoje.getFullYear() - 5}`;
+  const url = `https://api.bcb.gov.br/dados/serie/bcdata.sgs.11/dados?formato=json&dataInicial=${ini}&dataFinal=${fim}`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('Falha ao buscar SELIC do BCB');
+  _selicCache = await resp.json(); // [{data:"01/01/2024", valor:"0.8683"}, ...]
+  return _selicCache;
+}
+
+// Acumula SELIC do mês seguinte ao de referência até o mês atual (inclusive)
+function calcSelicAcumulada(origemStr, selicData) {
+  if (!origemStr || !selicData) return 0;
+  const partes = origemStr.trim().split('/');
+  if (partes.length < 2) return 0;
+  const mesRef = MESES_NOME[partes[0].toLowerCase()] || 0;
+  const anoRef = parseInt(partes[1]);
+  if (!mesRef || !anoRef) return 0;
+
+  const hoje = new Date();
+  const mesFim = hoje.getMonth() + 1;
+  const anoFim = hoje.getFullYear();
+
+  let acum = 1;
+  for (const item of selicData) {
+    const [, mm, yyyy] = item.data.split('/').map(Number);
+    const depoisRef = (yyyy > anoRef) || (yyyy === anoRef && mm > mesRef);
+    const ateHoje   = (yyyy < anoFim) || (yyyy === anoFim && mm <= mesFim);
+    if (depoisRef && ateHoje) acum *= (1 + parseFloat(item.valor) / 100);
+  }
+  return parseFloat(((acum - 1) * 100).toFixed(4));
+}
+
+// ── BrasilAPI address ─────────────────────────────────────────────────────────
+async function fetchEndereco(cnpj) {
+  try {
+    const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
+    if (!resp.ok) return null;
+    const d = await resp.json();
+    return [
+      d.logradouro,
+      d.numero    ? `Nº ${d.numero}`   : null,
+      d.complemento || null,
+      d.bairro    ? `Bairro: ${d.bairro}` : null,
+      `${d.municipio} – ${d.uf}`,
+      d.cep       ? `CEP ${d.cep}`     : null,
+    ].filter(Boolean).join(', ');
+  } catch { return null; }
+}
+
+// ── XLSX generation ───────────────────────────────────────────────────────────
+async function gerarXlsxEmpresa(idx) {
+  if (!window.XLSX) { alert('Biblioteca XLSX não carregou. Recarregue a página.'); return; }
+  const emp = empresasNotif[idx];
   const TOLERANCIA = 0.02;
   const regs = emp.registros.filter(r =>
     r.tipo !== 'excluido' && r.tipo !== 'erro' && (r.diferenca || 0) < -TOLERANCIA
   );
 
+  let selicData = null;
+  try { selicData = await getSelicMensal(); } catch(_) {}
+
+  // Colunas: A=ITEM B=CREDOR C=CNPJ D=DATA E=VLR_BRUTO F=ALIQ G=IRRF_DEV H=IRRF_RET I=DIF J=SELIC K=ATUALIZADO
+  const NC = 11;
   const wb = XLSX.utils.book_new();
-  const aoaTitulo = [['V. DEMONSTRATIVO ANÁLITICO DO CRÉDITO TRIBUTÁRIO APURADO', '', '', '', '', '', '', '', '', '', '', '', '']];
-  const aoaHeader = [['ITEM','N EMPENHO/LIQUIDAÇÃO','CREDOR','CNPJ DO CREDOR','N DOCUMENTO FISCAL','DATA LIQUIDAÇÃO','VALOR BRUTO','ALIQUOTA APLICAVEL','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA','INDICE COR. SELIC','VALOR ATUALIZADO']];
+  const aoaTitulo = [['V. DEMONSTRATIVO ANÁLITICO DO CRÉDITO TRIBUTÁRIO APURADO', ...Array(NC-1).fill('')]];
+  const aoaHeader = [['ITEM','CREDOR','CNPJ DO CREDOR','DATA LIQUIDAÇÃO','VALOR BRUTO','ALIQUOTA APLICAVEL','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA','INDICE COR. SELIC','VALOR ATUALIZADO']];
 
   const aoaData = regs.map((r, i) => {
-    const row = i + 3; // Excel row index (1-indexed, data starts at row 3)
-    const aliq = (r.aliquota != null) ? r.aliquota
+    const row  = i + 3;
+    const aliq = (r.aliquota != null && r.aliquota > 0) ? r.aliquota
                  : (r.retencaoEsperada && r.valorPago ? (r.retencaoEsperada / r.valorPago * 100) : 0);
     const cnpjFmt = formatCnpj(onlyDigits(r.documento)) || r.documento;
-    const dataLiq = r.origem || '';
+    const selic   = calcSelicAcumulada(r.origem, selicData);
     return [
       i + 1,
-      '',       // N EMPENHO/LIQUIDAÇÃO — user fills
       r.nome,
       cnpjFmt,
-      '',       // N DOCUMENTO FISCAL — user fills
-      dataLiq,  // DATA LIQUIDAÇÃO (mês de referência)
+      r.origem || '',
       r.valorPago,
       aliq,
-      { t:'n', f:`G${row}*H${row}/100` },
+      { t:'n', f:`E${row}*F${row}/100` },
       r.retencaoTxt,
-      { t:'n', f:`I${row}-J${row}` },
+      { t:'n', f:`G${row}-H${row}` },
       selic,
-      { t:'n', f:`K${row}+(K${row}*L${row}/100)` },
+      { t:'n', f:`I${row}+(I${row}*J${row}/100)` },
     ];
   });
 
-  const lastDataRow = regs.length + 2;
+  const last = regs.length + 2;
   const totalRow = [
-    'TOTAL','','','','','',
-    { t:'n', f:`SUM(G3:G${lastDataRow})` },
-    '',
-    { t:'n', f:`SUM(I3:I${lastDataRow})` },
-    '',
-    { t:'n', f:`SUM(K3:K${lastDataRow})` },
-    '',
-    { t:'n', f:`SUM(M3:M${lastDataRow})` },
+    'TOTAL','','','',
+    { t:'n', f:`SUM(E3:E${last})` }, '',
+    { t:'n', f:`SUM(G3:G${last})` },
+    { t:'n', f:`SUM(H3:H${last})` },
+    { t:'n', f:`SUM(I3:I${last})` }, '',
+    { t:'n', f:`SUM(K3:K${last})` },
   ];
 
   const aoa = [...aoaTitulo, ...aoaHeader, ...aoaData, totalRow];
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-  // Merge title row A1:M1
-  ws['!merges'] = [{ s:{r:0,c:0}, e:{r:0,c:12} }];
-  ws['!cols'] = [
-    {wch:4},{wch:18},{wch:36},{wch:22},{wch:18},{wch:16},
+  const ws  = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!merges'] = [{ s:{r:0,c:0}, e:{r:0,c:NC-1} }];
+  ws['!cols']   = [
+    {wch:4},{wch:38},{wch:22},{wch:16},
     {wch:14},{wch:10},{wch:14},{wch:12},{wch:14},{wch:10},{wch:16},
   ];
 
@@ -1667,14 +1721,27 @@ async function gerarDocxEmpresa(idx) {
   const cfg    = lerConfigNotif();
   const dadosE = lerDadosEmpresa(idx);
 
-  const selic = dadosE.selic;
-  const regs  = emp.registros.filter(r =>
+  const regs = emp.registros.filter(r =>
     r.tipo !== 'excluido' && r.tipo !== 'erro' && (r.diferenca || 0) < -0.02
   );
 
+  // SELIC por mês + endereço (em paralelo)
+  let selicData = null, endereco = null;
+  try {
+    [selicData, endereco] = await Promise.all([
+      getSelicMensal().catch(() => null),
+      fetchEndereco(onlyDigits(emp.documento)).catch(() => null),
+    ]);
+  } catch(_) {}
+
+  // Valor principal = soma das diferenças negativas; atualização = por nota com SELIC do mês
   const valorPrincipal = regs.reduce((s, r) => s + Math.abs(Math.min(r.diferenca || 0, 0)), 0);
-  const atualizacao    = valorPrincipal * selic / 100;
-  const totalConsol    = valorPrincipal + atualizacao;
+  const atualizacao    = regs.reduce((s, r) => {
+    const dif   = Math.abs(Math.min(r.diferenca || 0, 0));
+    const selic = calcSelicAcumulada(r.origem, selicData);
+    return s + dif * selic / 100;
+  }, 0);
+  const totalConsol = valorPrincipal + atualizacao;
 
   const fmtBRL = (v) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -1702,7 +1769,7 @@ async function gerarDocxEmpresa(idx) {
     ['PORTO SEGURO CIA DE SEGUROS GERAIS', emp.nome],
     ['61.198.164.0001-60', cnpjFmtDocx || emp.documento],
     ['[Inserir: Número da Inscrição]', '[Inserir: Número da Inscrição]'],
-    ['AV: RIO BRANCO Nº1489, BAIRRO: CAMPOS ELIESOS, SÃO PAULO – SP, CEP 01.205.001', '[Endereço completo do credor]'],
+    ['AV: RIO BRANCO Nº1489, BAIRRO: CAMPOS ELIESOS, SÃO PAULO – SP, CEP 01.205.001', endereco || '[Endereço completo do credor]'],
     // R$ values handled in order below
     ['Coroci – MG', cfg.municipio + ' – MG'],
     // Date: concatenated from 6 runs
@@ -2016,7 +2083,7 @@ async function gerarTodasDocx() {
 async function gerarTodasXlsx() {
   if (!empresasNotif.length) { alert('Nenhuma empresa carregada.'); return; }
   for (let i = 0; i < empresasNotif.length; i++) {
-    gerarXlsxEmpresa(i);
+    await gerarXlsxEmpresa(i);
     await new Promise(r => setTimeout(r, 300));
   }
 }
