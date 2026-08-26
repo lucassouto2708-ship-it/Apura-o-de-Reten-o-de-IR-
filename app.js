@@ -1599,8 +1599,6 @@ function numNotifForIdx(idx) {
 function lerDadosEmpresa(idx) {
   return {
     numNotif : numNotifForIdx(idx),
-    processo : document.getElementById(`nf-proc-${idx}`).value.trim() || '[Inserir: Número do Processo Licitatório / Contrato Administrativo]',
-    empenho  : document.getElementById(`nf-emp-${idx}`).value.trim() || '[Inserir: Notas de Empenho]',
     selic    : 0, // auto-calculado via BCB
   };
 }
