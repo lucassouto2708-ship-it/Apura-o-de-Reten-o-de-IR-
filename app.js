@@ -1540,10 +1540,6 @@ function renderNotifTab(fonteLabel) {
         <div class="nf-total-chip"><span class="v">${fmtM(totalRetido)}</span><span class="l">IRRF Retido</span></div>
         <div class="nf-total-chip" style="color:var(--red)"><span class="v">${fmtM(Math.abs(totalDif))}</span><span class="l">Diferença</span></div>
       </div>
-      <div class="nf-empresa-inputs">
-        <label>Processo / Contrato<input class="nf-input" id="nf-proc-${idx}" placeholder="Nº do processo ou contrato"></label>
-        <label>Nota(s) de Empenho<input class="nf-input" id="nf-emp-${idx}" placeholder="Ex: 12 LIQ.05, 510 LIQ.04…"></label>
-      </div>
       <div class="nf-btns">
         <button class="btn-docx" onclick="gerarDocxEmpresa(${idx})">📄 Gerar DOCX</button>
         <button class="btn-xlsx" onclick="gerarXlsxEmpresa(${idx})">📊 Gerar XLSX</button>
@@ -1787,14 +1783,17 @@ async function gerarDocxEmpresa(idx) {
     ['PORTO SEGURO CIA DE SEGUROS GERAIS', emp.nome],
     ['61.198.164.0001-60', cnpjFmtDocx || emp.documento],
     ['[Inserir: Número da Inscrição]', '[Inserir: Número da Inscrição]'],
+    // Endereço — template usa hífen simples (-)
+    ['AV: RIO BRANCO Nº1489, BAIRRO: CAMPOS ELIESOS, SÃO PAULO - SP, CEP 01.205.001', endereco || '[Endereço completo do credor]'],
     ['AV: RIO BRANCO Nº1489, BAIRRO: CAMPOS ELIESOS, SÃO PAULO – SP, CEP 01.205.001', endereco || '[Endereço completo do credor]'],
     // R$ values handled in order below
     ['Coroci – MG', cfg.municipio + ' – MG'],
     // Date: concatenated from 6 runs
     [`COROACI/MG, 20 de Agosto de 2026`, `${cfg.municipio}/${cfg.estado}, ${dia} de ${mes} de ${ano}`],
-    // Auditor
+    // Auditor e matrícula — com e sem ] final (depende de como os runs foram partidos)
     ['[Inserir: Nome do Auditor / Fiscal Tributário]', cfg.auditor],
     ['[Inserir: Matrícula]', cfg.matricula],
+    ['[Inserir: Matrícula', cfg.matricula],
   ]);
 
   // R$ values appear in order: principal, atualização, total
@@ -1810,7 +1809,7 @@ async function gerarDocxEmpresa(idx) {
   const xmlDoc = parser.parseFromString(docXml, 'text/xml');
 
   // Remove parágrafos de Inscrição Municipal e Processo Administrativo/Contrato
-  const REMOVE_PHRASES = ['Inscrição Municipal', 'Processo Administrativo / Contrato'];
+  const REMOVE_PHRASES = ['Inscrição Municipal', 'Processo Administrativo / Contrato', 'Nota de Empenho'];
   Array.from(xmlDoc.getElementsByTagNameNS(WNS, 'p')).forEach(para => {
     const txt = Array.from(para.getElementsByTagNameNS(WNS, 't')).map(t => t.textContent).join('');
     if (REMOVE_PHRASES.some(p => txt.includes(p))) para.parentNode.removeChild(para);
