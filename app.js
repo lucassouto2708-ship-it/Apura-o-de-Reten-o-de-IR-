@@ -1705,7 +1705,7 @@ async function gerarXlsxEmpresa(idx) {
       { t:'n', v: aliq,             z: '0.0' },
       { t:'n', f:`E${row}*F${row}/100`, z: BRL },
       { t:'n', v: r.retencaoTxt,   z: BRL },
-      { t:'n', f:`MIN(G${row}-H${row},0)`, z: BRL },
+      { t:'n', f:`MAX(G${row}-H${row},0)`, z: BRL },
       { t:'n', v: selic,                  z: PCT },
       { t:'n', f:`I${row}+(I${row}*J${row}/100)`, z: BRL },
     ];
