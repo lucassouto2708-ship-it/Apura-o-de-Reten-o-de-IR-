@@ -1505,11 +1505,13 @@ function renderNotifTab(fonteLabel) {
     container.innerHTML = '';
     emptyEl.style.display = '';
     sessionBar.style.display = 'none';
+    document.getElementById('nf-gerar-todas').style.display = 'none';
     return;
   }
   emptyEl.style.display = 'none';
   sessionBar.style.display = 'flex';
   sessionLbl.textContent = fonteLabel || `${ultimosResultados.length} registros carregados`;
+  document.getElementById('nf-gerar-todas').style.display = 'flex';
 
   empresasNotif = agruparPorEmpresa(ultimosResultados);
 
@@ -1987,6 +1989,24 @@ function ioPago(row, idx) {
   const v = row[idx];
   if (typeof v === 'number') return v;
   return parseFloat(String(v || '').replace(/[^\d,.-]/g, '').replace(',', '.')) || 0;
+}
+
+// ── Batch generation ──────────────────────────────────────────────────────────
+async function gerarTodasDocx() {
+  if (!empresasNotif.length) { alert('Nenhuma empresa carregada.'); return; }
+  for (let i = 0; i < empresasNotif.length; i++) {
+    await gerarDocxEmpresa(i);
+    // Small delay between downloads so the browser doesn't block them
+    await new Promise(r => setTimeout(r, 400));
+  }
+}
+
+async function gerarTodasXlsx() {
+  if (!empresasNotif.length) { alert('Nenhuma empresa carregada.'); return; }
+  for (let i = 0; i < empresasNotif.length; i++) {
+    gerarXlsxEmpresa(i);
+    await new Promise(r => setTimeout(r, 300));
+  }
 }
 
 // ── Dispatcher: PDF or XLSX ───────────────────────────────────────────────────
