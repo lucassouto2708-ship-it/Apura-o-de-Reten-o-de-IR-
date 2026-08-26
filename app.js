@@ -1517,10 +1517,10 @@ function renderNotifTab(fonteLabel) {
   }
   emptyEl.style.display = 'none';
   sessionBar.style.display = 'flex';
-  sessionLbl.textContent = fonteLabel || `${ultimosResultados.length} registros carregados`;
-  document.getElementById('nf-gerar-todas').style.display = 'flex';
-
   empresasNotif = agruparPorEmpresa(ultimosResultados);
+  const tsLabel = fonteLabel ? fonteLabel.replace(/—\s*\d+\s*registros/, '').trim() : '';
+  sessionLbl.textContent = (tsLabel ? tsLabel + ' — ' : '') + `${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência`;
+  document.getElementById('nf-gerar-todas').style.display = 'flex';
 
   const fmtM = (v) => typeof v === 'number' ? formatMoeda(v) : '—';
 
@@ -1560,6 +1560,16 @@ function limparConfigNotif() {
   document.getElementById('nf-matricula').value = '';
   document.getElementById('nf-data').value = '';
   document.getElementById('nf-numini').value = '1';
+  // Limpa dados carregados e volta ao estado vazio
+  ultimosResultados = [];
+  empresasNotif = [];
+  localStorage.removeItem('apuracao_ir_resultados');
+  renderNotifTab();
+  // Reseta input de arquivo
+  const fi = document.getElementById('nf-file-input');
+  if (fi) fi.value = '';
+  const fie = document.getElementById('nf-file-input-empty');
+  if (fie) fie.value = '';
 }
 
 function lerConfigNotif() {
