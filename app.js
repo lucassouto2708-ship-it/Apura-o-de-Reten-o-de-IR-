@@ -1848,6 +1848,14 @@ async function gerarDocxEmpresa(idx) {
     }
   }
 
+  // Remove o ']' solto que fica após o campo matrícula (run não-amarelo separado)
+  xmlDoc.getElementsByTagNameNS(WNS, 't') && Array.from(xmlDoc.getElementsByTagNameNS(WNS, 't')).forEach(t => {
+    if (t.textContent === ']') {
+      const run = t.parentNode;
+      if (run && run.parentNode) run.parentNode.removeChild(run);
+    }
+  });
+
   // Replace non-yellow hardcoded fields via string replacement
   const serializer = new XMLSerializer();
   let newXml = serializer.serializeToString(xmlDoc);
