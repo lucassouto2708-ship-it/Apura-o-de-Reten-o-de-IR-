@@ -1852,17 +1852,6 @@ async function gerarDocxEmpresa(idx) {
   const serializer = new XMLSerializer();
   let newXml = serializer.serializeToString(xmlDoc);
 
-  // Processo/Contrato
-  newXml = newXml.replace(
-    /\[Inserir: Número do Processo Licitatório \/ Contrato Administrativo\]/,
-    _xmlEscape(dadosE.processo)
-  );
-  // Nota de Empenho (the hardcoded empenho list from the template example)
-  newXml = newXml.replace(
-    /12 LIQUIDAÇÃO 05 E 06, 510 LIQ\.04, 894 LIQ\. 04, 1312 LIQ\. 03, 1709 LIQ\. 02\./,
-    _xmlEscape(dadosE.empenho)
-  );
-
   zip.file('word/document.xml', newXml);
   const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
 
