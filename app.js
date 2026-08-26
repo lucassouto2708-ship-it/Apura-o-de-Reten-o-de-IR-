@@ -1809,6 +1809,118 @@ function _xmlEscape(str) {
     .replace(/"/g, '&quot;');
 }
 
+// ── PDF re-import (parse the printed PDF from this app) ───────────────────────
+async function parsePdfExportado(arrayBuffer) {
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+  // Collect all text items with page-space coordinates
+  const allItems = [];
+  for (let pn = 1; pn <= pdf.numPages; pn++) {
+    const page = await pdf.getPage(pn);
+    const vp   = page.getViewport({ scale: 1 });
+    const tc   = await page.getTextContent();
+    for (const item of tc.items) {
+      const s = (item.str || '').trim();
+      if (!s) continue;
+      const x = item.transform[4];
+      const y = vp.height - item.transform[5]; // flip: PDF origin = bottom-left
+      allItems.push({ text: s, x, y, page: pn });
+    }
+  }
+
+  // Group into rows by (page, y) with tolerance
+  const TOL = 4;
+  const rows = [];
+  for (const item of allItems.sort((a, b) => a.page - b.page || a.y - b.y)) {
+    const existing = rows.find(r => r.page === item.page && Math.abs(r.y - item.y) < TOL);
+    if (existing) existing.items.push(item);
+    else rows.push({ y: item.y, page: item.page, items: [item] });
+  }
+  for (const row of rows) {
+    row.items.sort((a, b) => a.x - b.x);
+    row.text = row.items.map(i => i.text).join(' ');
+  }
+
+  // Find header row (contains "Credor" AND "CNPJ")
+  const hIdx = rows.findIndex(r => /credor/i.test(r.text) && /cnpj/i.test(r.text));
+  if (hIdx < 0) return null;
+
+  // Map column names → x-position using header items
+  const COL_PATTERNS = [
+    { name: 'nome',             re: /credor/i },
+    { name: 'documento',        re: /cnpj/i },
+    { name: 'situacao',         re: /situa/i },
+    { name: 'cnae',             re: /cnae/i },
+    { name: 'aliquota',         re: /^%$/ },
+    { name: 'origem',           re: /origem/i },
+    { name: 'valorPago',        re: /pago/i },
+    { name: 'retencaoEsperada', re: /esperada/i },
+    { name: 'retencaoTxt',      re: /relat/i },
+    { name: 'diferenca',        re: /diferen/i },
+  ];
+  const colPos = [];
+  for (const col of COL_PATTERNS) {
+    const hi = rows[hIdx].items.find(i => col.re.test(i.text));
+    if (hi) colPos.push({ name: col.name, x: hi.x });
+  }
+  colPos.sort((a, b) => a.x - b.x);
+  if (colPos.length < 3) return null;
+
+  // Assign each item to closest column
+  function assignCol(item) {
+    let best = colPos[0], bestD = Infinity;
+    for (const c of colPos) {
+      const d = Math.abs(item.x - c.x);
+      if (d < bestD) { bestD = d; best = c; }
+    }
+    return best.name;
+  }
+
+  const parseMoeda = (s) => {
+    if (!s || /^[—–-]$/.test(s.trim())) return 0;
+    const neg = s.includes('-') && !s.startsWith('R');
+    const num = parseFloat(
+      String(s).replace(/[^\d,.-]/g, '').replace(/\.(?=\d{3})/g, '').replace(',', '.')
+    ) || 0;
+    return neg ? -Math.abs(num) : num;
+  };
+
+  const registros = [];
+  for (let i = hIdx + 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (row.items.length < 3) continue;
+    // Skip month-divider rows (few columns, uppercase-ish short text)
+    if (row.items.length <= 2) continue;
+
+    const rec = {};
+    for (const item of row.items) {
+      const col = assignCol(item);
+      rec[col] = rec[col] ? rec[col] + ' ' + item.text : item.text;
+    }
+    if (!rec.nome || !rec.nome.trim()) continue;
+    // Skip header repetitions on new pages
+    if (/credor/i.test(rec.nome) && /cnpj/i.test(rec.documento || '')) continue;
+
+    const sit = String(rec.situacao || '').toLowerCase();
+    registros.push({
+      nome              : rec.nome.trim(),
+      documento         : onlyDigits(rec.documento || ''),
+      tipo              : sit.includes('física') ? 'pf'
+                        : sit.includes('fora') || sit.includes('escopo') ? 'excluido'
+                        : sit.includes('erro') ? 'erro' : 'pj',
+      isSimples         : sit.includes('simples'),
+      cnaePrincipal     : String(rec.cnae || '').replace(/[^\d]/g, ''),
+      aliquota          : parseFloat(String(rec.aliquota || '').replace(',', '.')) || 0,
+      origem            : rec.origem || '',
+      valorPago         : parseMoeda(rec.valorPago),
+      retencaoEsperada  : parseMoeda(rec.retencaoEsperada),
+      retencaoTxt       : parseMoeda(rec.retencaoTxt),
+      diferenca         : parseMoeda(rec.diferenca),
+    });
+  }
+  return registros;
+}
+
 // ── XLSX re-import (load exported file back into notification tab) ─────────────
 function carregarXlsxExportado(file) {
   if (!file) return;
@@ -1877,10 +1989,33 @@ function ioPago(row, idx) {
   return parseFloat(String(v || '').replace(/[^\d,.-]/g, '').replace(',', '.')) || 0;
 }
 
+// ── Dispatcher: PDF or XLSX ───────────────────────────────────────────────────
+async function carregarArquivoExportado(file) {
+  if (!file) return;
+  const isPdf = /\.pdf$/i.test(file.name);
+  if (isPdf) {
+    const lbl = document.getElementById('nf-session-label');
+    if (lbl) lbl.textContent = 'Lendo PDF…';
+    try {
+      const buf = await file.arrayBuffer();
+      const regs = await parsePdfExportado(buf);
+      if (!regs || !regs.length) { alert('Não foi possível extrair registros deste PDF.\nCertifique-se de usar um PDF exportado por esta ferramenta.'); return; }
+      ultimosResultados = regs;
+      salvarResultadosLS(regs);
+      renderResultados(regs);
+      renderNotifTab(`PDF: ${file.name} — ${regs.length} registros`);
+    } catch(err) {
+      alert('Erro ao ler o PDF: ' + err.message);
+    }
+  } else {
+    carregarXlsxExportado(file);
+  }
+}
+
 // Wire up both file inputs
 document.addEventListener('DOMContentLoaded', () => {
   const f1 = document.getElementById('nf-file-input');
   const f2 = document.getElementById('nf-file-input-empty');
-  if (f1) f1.addEventListener('change', e => carregarXlsxExportado(e.target.files[0]));
-  if (f2) f2.addEventListener('change', e => carregarXlsxExportado(e.target.files[0]));
+  if (f1) f1.addEventListener('change', e => carregarArquivoExportado(e.target.files[0]));
+  if (f2) f2.addEventListener('change', e => carregarArquivoExportado(e.target.files[0]));
 });
