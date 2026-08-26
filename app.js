@@ -1164,6 +1164,7 @@ document.getElementById('situacaoDestaqueSelect').addEventListener('change', (e)
 
 function renderResultados(resultados) {
   ultimosResultados = resultados; // mantém a ordem de acumulação intacta (não a ordenada)
+  salvarResultadosLS(resultados);
   const TOLERANCIA = 0.02; // tolerância de arredondamento em R$
 
   let comDivergencia = 0;
@@ -1423,6 +1424,28 @@ btnReprocessarErros2.addEventListener('click', reprocessarErros);
 // XXXXXXXXXXXXXXXXXXXXXXXXXX   NOTIFICAÇÕES   XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 // =============================================================================
 
+// ── localStorage persistence ──────────────────────────────────────────────────
+const LS_KEY = 'apuracao_ir_resultados';
+
+function salvarResultadosLS(resultados) {
+  try {
+    const payload = { ts: Date.now(), dados: resultados };
+    localStorage.setItem(LS_KEY, JSON.stringify(payload));
+  } catch(_) {}
+}
+
+function restaurarResultadosLS() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch(_) { return null; }
+}
+
+function fmtDataHoraLS(ts) {
+  return new Date(ts).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+}
+
 // ── Tab switching ─────────────────────────────────────────────────────────────
 const tabApuracao = document.getElementById('tabApuracao');
 const tabNotif    = document.getElementById('tabNotif');
@@ -1441,6 +1464,16 @@ tabBtnNotif.addEventListener('click', () => {
   tabNotif.style.display = '';
   tabBtnApur.classList.remove('ativo');
   tabBtnNotif.classList.add('ativo');
+  // Try restoring from localStorage if nothing in memory
+  if (!ultimosResultados.length) {
+    const salvo = restaurarResultadosLS();
+    if (salvo && salvo.dados && salvo.dados.length) {
+      ultimosResultados = salvo.dados;
+      renderResultados(ultimosResultados);
+      renderNotifTab(`Sessão salva em ${fmtDataHoraLS(salvo.ts)} — ${salvo.dados.length} registros`);
+      return;
+    }
+  }
   renderNotifTab();
 });
 
@@ -1462,16 +1495,21 @@ function agruparPorEmpresa(registros) {
 }
 
 // ── Render notification tab ───────────────────────────────────────────────────
-function renderNotifTab() {
-  const container = document.getElementById('nf-empresas');
-  const emptyEl   = document.getElementById('nf-empty');
+function renderNotifTab(fonteLabel) {
+  const container  = document.getElementById('nf-empresas');
+  const emptyEl    = document.getElementById('nf-empty');
+  const sessionBar = document.getElementById('nf-session-bar');
+  const sessionLbl = document.getElementById('nf-session-label');
 
   if (!ultimosResultados.length) {
     container.innerHTML = '';
     emptyEl.style.display = '';
+    sessionBar.style.display = 'none';
     return;
   }
   emptyEl.style.display = 'none';
+  sessionBar.style.display = 'flex';
+  sessionLbl.textContent = fonteLabel || `${ultimosResultados.length} registros carregados`;
 
   empresasNotif = agruparPorEmpresa(ultimosResultados);
 
@@ -1770,3 +1808,79 @@ function _xmlEscape(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+// ── XLSX re-import (load exported file back into notification tab) ─────────────
+function carregarXlsxExportado(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      // Find header row (contains 'Credor' or 'CNPJ')
+      let hIdx = rows.findIndex(r => r.some(c => /credor/i.test(String(c))));
+      if (hIdx < 0) { alert('Não foi possível identificar o cabeçalho da planilha.'); return; }
+      const header = rows[hIdx].map(h => String(h).toLowerCase().trim());
+      const iNome  = header.findIndex(h => h.includes('credor'));
+      const iDoc   = header.findIndex(h => h.includes('cnpj') || h.includes('cpf'));
+      const iSit   = header.findIndex(h => h.includes('situa'));
+      const iCnae  = header.findIndex(h => h.includes('cnae'));
+      const iAliq  = header.findIndex(h => h.includes('%') || h === 'aplicável' || h.includes('aplicav') || h.includes('aliq'));
+      const iOrig  = header.findIndex(h => h.includes('origem'));
+      const iPago  = header.findIndex(h => h.includes('pago') || h.includes('bruto'));
+      const iEsp   = header.findIndex(h => h.includes('esperada'));
+      const iRet   = header.findIndex(h => h.includes('relatório') || h.includes('relatorio'));
+      const iDif   = header.findIndex(h => h.includes('diferença') || h.includes('diferenca'));
+
+      const registros = [];
+      for (let i = hIdx + 1; i < rows.length; i++) {
+        const r = rows[i];
+        const nome = String(r[iNome] || '').trim();
+        if (!nome) continue;
+        const sit  = String(r[iSit] || '').toLowerCase();
+        const tipo = sit.includes('física') ? 'pf'
+                   : sit.includes('fora') || sit.includes('escopo') ? 'excluido'
+                   : sit.includes('erro') ? 'erro' : 'pj';
+        const aliq = iAliq >= 0 ? parseFloat(String(r[iAliq]).replace(',', '.')) || 0 : 0;
+        registros.push({
+          nome,
+          documento : String(r[iDoc] || '').replace(/\D/g, '') || String(r[iDoc] || ''),
+          tipo,
+          isSimples : sit.includes('simples'),
+          cnaePrincipal : iCnae >= 0 ? String(r[iCnae] || '').replace(/[^\d]/g, '') : '',
+          aliquota  : aliq,
+          origem    : iOrig >= 0 ? String(r[iOrig] || '') : '',
+          valorPago         : ioPago(r, iPago),
+          retencaoEsperada  : ioPago(r, iEsp),
+          retencaoTxt       : ioPago(r, iRet),
+          diferenca         : ioPago(r, iDif),
+        });
+      }
+
+      if (!registros.length) { alert('Nenhum registro encontrado na planilha.'); return; }
+      ultimosResultados = registros;
+      salvarResultadosLS(registros);
+      renderResultados(registros);
+      renderNotifTab(`Planilha: ${file.name} — ${registros.length} registros`);
+    } catch(err) {
+      alert('Erro ao ler a planilha: ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function ioPago(row, idx) {
+  if (idx < 0) return 0;
+  const v = row[idx];
+  if (typeof v === 'number') return v;
+  return parseFloat(String(v || '').replace(/[^\d,.-]/g, '').replace(',', '.')) || 0;
+}
+
+// Wire up both file inputs
+document.addEventListener('DOMContentLoaded', () => {
+  const f1 = document.getElementById('nf-file-input');
+  const f2 = document.getElementById('nf-file-input-empty');
+  if (f1) f1.addEventListener('change', e => carregarXlsxExportado(e.target.files[0]));
+  if (f2) f2.addEventListener('change', e => carregarXlsxExportado(e.target.files[0]));
+});

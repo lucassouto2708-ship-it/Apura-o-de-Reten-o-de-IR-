@@ -181,8 +181,9 @@
   .tab-btn:hover:not(.ativo){ color:var(--text); filter:none; }
 
   /* ── Notification tab ─────────────────────────────────────── */
-  .nf-config-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:12px 20px; }
-  .nf-config-grid label{ margin-bottom:0; }
+  .nf-config-grid{ display:grid; grid-template-columns:1fr 80px 1.6fr 1fr 1fr 80px; gap:12px 16px; align-items:end; }
+  @media(max-width:900px){ .nf-config-grid{ grid-template-columns:repeat(auto-fill, minmax(180px,1fr)); } }
+  .nf-config-grid label{ margin-bottom:0; display:flex; flex-direction:column; gap:6px; }
   .nf-input{
     width:100%; padding:8px 12px; border-radius:8px; border:1px solid var(--border);
     background:var(--card2); color:var(--text); font-size:.88rem; outline:none;
@@ -413,11 +414,23 @@
       </div>
     </div>
 
+    <div id="nf-session-bar" style="display:none; margin-bottom:16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+      <span id="nf-session-label" style="font-size:.82rem; color:var(--muted); flex:1;"></span>
+      <label style="margin:0; display:flex; align-items:center; gap:8px; cursor:pointer; font-size:.82rem; color:var(--muted); text-transform:none; letter-spacing:normal; font-weight:400;">
+        Carregar Excel exportado:
+        <input type="file" id="nf-file-input" accept=".xlsx" style="font-size:.8rem; color:var(--muted);">
+      </label>
+    </div>
+
     <div id="nf-empresas"></div>
 
     <div id="nf-empty" class="card nf-empty">
       <div style="font-size:2.5rem;margin-bottom:12px;">📂</div>
-      <div>Processe um relatório na aba <strong>Apuração</strong> para gerar as notificações.</div>
+      <div style="margin-bottom:16px;">Processe um relatório na aba <strong>Apuração</strong>, ou carregue um Excel exportado anteriormente:</div>
+      <label style="cursor:pointer; display:inline-flex; align-items:center; gap:8px; background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:10px 18px; font-size:.88rem; color:var(--text); text-transform:none; letter-spacing:normal; font-weight:600; margin:0;">
+        📥 Carregar Excel exportado
+        <input type="file" id="nf-file-input-empty" accept=".xlsx" style="display:none;">
+      </label>
     </div>
   </div><!-- /#tabNotif -->
 
