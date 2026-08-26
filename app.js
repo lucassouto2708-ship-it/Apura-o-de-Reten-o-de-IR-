@@ -1793,7 +1793,7 @@ async function gerarDocxEmpresa(idx) {
     // Date: concatenated from 6 runs
     [`COROACI/MG, 20 de Agosto de 2026`, `${cfg.municipio}/${cfg.estado}, ${dia} de ${mes} de ${ano}`],
     // Auditor
-    ['[Inserir]: Nome do Auditor / Fiscal Tributário]', cfg.auditor],
+    ['[Inserir: Nome do Auditor / Fiscal Tributário]', cfg.auditor],
     ['[Inserir: Matrícula]', cfg.matricula],
   ]);
 
