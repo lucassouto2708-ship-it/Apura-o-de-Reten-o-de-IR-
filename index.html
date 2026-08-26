@@ -412,6 +412,9 @@
         <label>Data da Notificação<input class="nf-input" type="date" id="nf-data"></label>
         <label>Nº inicial da notificação<input class="nf-input" type="number" id="nf-numini" value="1" min="1" step="1" title="A primeira empresa receberá este número; as seguintes seguem em sequência"></label>
       </div>
+      <div style="margin-top:14px; display:flex; justify-content:flex-end;">
+        <button onclick="limparConfigNotif()" style="padding:7px 18px; font-size:.82rem; font-weight:600; background:transparent; color:var(--muted); border:1px solid var(--border); border-radius:8px; cursor:pointer; transition:all .15s;" onmouseover="this.style.color='var(--text)';this.style.borderColor='var(--text)'" onmouseout="this.style.color='var(--muted)';this.style.borderColor='var(--border)'">🗑 Limpar campos</button>
+      </div>
     </div>
 
     <div id="nf-session-bar" style="display:none; margin-bottom:16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">

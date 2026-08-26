@@ -1553,6 +1553,15 @@ function renderNotifTab(fonteLabel) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+function limparConfigNotif() {
+  document.getElementById('nf-municipio').value = '';
+  document.getElementById('nf-estado').value = '';
+  document.getElementById('nf-auditor').value = '';
+  document.getElementById('nf-matricula').value = '';
+  document.getElementById('nf-data').value = '';
+  document.getElementById('nf-numini').value = '1';
+}
+
 function lerConfigNotif() {
   const dataEl = document.getElementById('nf-data');
   let dataVal = dataEl.value;
