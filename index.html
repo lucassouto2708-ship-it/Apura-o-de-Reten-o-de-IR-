@@ -177,11 +177,18 @@
     #lotesBox, #statusLine, #errorBox,
     .header-row button, details{ display:none !important; }
 
-    /* ── Base ── */
+    /* ── Força paleta clara independente do tema ── */
+    html, html[data-theme="dark"], html[data-theme="light"]{
+      --bg:#fff; --card:#fff; --card2:#f5f5f5; --text:#111; --muted:#555;
+      --border:#ccc; --accent:#1a7a50; --accent-strong:#1a5c54;
+      --green:#1a7a50; --red:#b83030; --yellow:#7a5500;
+    }
     *, *::before, *::after{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     html, body{ background:#fff !important; color:#111 !important;
       font-family:'Segoe UI',Arial,sans-serif; font-size:9pt;
       padding:0; margin:0; display:block; }
+    /* Garante que nenhuma linha herde fundo escuro do tema */
+    tr, td, th, div, span, p{ background-color:transparent; color:inherit; }
 
     /* ── Cabeçalho de impressão ── */
     .wrap::before{
