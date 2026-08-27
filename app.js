@@ -1186,7 +1186,8 @@ function renderResultados(resultados) {
     const origem = r.origem || '';
     if (origem && origem !== mesAtual) {
       if (mesAtual !== null) {
-        divisor = `<tr class="mes-divider"><td colspan="10">${escapeHtml(origem)}</td></tr>`;
+        const isFundido = origem.toLowerCase().includes('fundido') || origem.includes('+');
+        divisor = `<tr class="${isFundido ? 'lote-divider' : 'mes-divider'}"><td colspan="10">${escapeHtml(origem)}</td></tr>`;
       }
       mesAtual = origem;
     }

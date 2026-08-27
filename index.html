@@ -476,11 +476,26 @@ tr.diff-row td:not(:first-child) { background: rgba(192,57,43,.04); }
 tr.ok-row td { background: rgba(22,131,91,.03); }
 tr.ok-row td:first-child { border-left: 3px solid var(--green); padding-left: 5px; }
 
+/* Separador de mês — sutil, estilo agrupador de planilha */
 tr.mes-divider td {
-  background: var(--blue); color: #fff;
+  background: var(--surface2);
+  color: var(--muted);
   font-weight: 700; font-size: .67rem;
   letter-spacing: .07em; text-transform: uppercase;
-  padding: 5px 8px; border: none;
+  padding: 5px 8px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Separador de lote fundido — âmbar para indicar atenção */
+tr.lote-divider td {
+  background: var(--amber-lt);
+  color: var(--amber);
+  font-weight: 700; font-size: .67rem;
+  letter-spacing: .06em; text-transform: uppercase;
+  padding: 5px 8px;
+  border-top: 1px solid rgba(183,121,31,.2);
+  border-bottom: 1px solid rgba(183,121,31,.2);
 }
 
 #resultsTable { min-width: 0; }
@@ -736,6 +751,8 @@ details.advanced summary::-webkit-details-marker { display: none; }
   tr.diff-row td { background:#fdf0ef !important; border-bottom:.5pt solid #e8c4c4; }
   tr.diff-row td:first-child { border-left:2pt solid #C0392B; }
   tr.ok-row td { background:#f0faf5 !important; }
+  tr.mes-divider td { background:#eeeeee !important; color:#555 !important; }
+  tr.lote-divider td { background:#fef3cd !important; color:#7a5500 !important; }
   .badge { padding:1px 5px; border-radius:2pt; font-size:6pt; font-weight:700; }
   .badge.simples    { background:#d4f2e4 !important; color:#16835B !important; }
   .badge.nao-simples{ background:#fde8e8 !important; color:#C0392B !important; }
