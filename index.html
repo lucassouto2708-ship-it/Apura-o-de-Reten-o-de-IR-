@@ -3,360 +3,842 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Apuração de Retenção de IR por CNAE</title>
+<title>IRRF Audit — Apuração de Retenção</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  /* Paleta própria — petróleo/grafite (referência: papel de auditoria/livro-razão),
-     não o combo indigo/roxo neon padrão de template gerado. Âmbar reservado só pra "atenção". */
-  :root{
-    --bg:#11151a; --card:#1a2027; --card2:#151a20; --text:#eef1f2; --muted:#8b96a0;
-    --accent:#3c9a89; --accent-strong:#4db3a0; --green:#3fa66d; --red:#dd5c4f; --yellow:#c99a42; --border:#2a323b;
-  }
-  @media (prefers-color-scheme: light){
-    :root{ --bg:#f6f5f1; --card:#ffffff; --card2:#f1efe9; --text:#1c1f22; --muted:#666f76; --border:#e2dfd6; }
-  }
-  /* Alternância manual (botão sol/lua) sempre vence a preferência do sistema */
-  :root[data-theme="dark"]{
-    --bg:#11151a; --card:#1a2027; --card2:#151a20; --text:#eef1f2; --muted:#8b96a0; --border:#2a323b;
-  }
-  :root[data-theme="light"]{
-    --bg:#f6f5f1; --card:#ffffff; --card2:#f1efe9; --text:#1c1f22; --muted:#666f76; --border:#e2dfd6;
-  }
-  *{box-sizing:border-box;}
-  body{
-    margin:0; min-height:100vh; background:var(--bg); color:var(--text);
-    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-    display:flex; justify-content:center; padding:40px 16px 56px;
-    transition:background-color .2s ease, color .2s ease;
-  }
-  .wrap{ width:100%; max-width:1400px; }
-  .header-row{ display:flex; align-items:center; justify-content:space-between; gap:16px; }
-  h1{
-    font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
-    font-size:1.55rem; font-weight:600; letter-spacing:.01em; margin:0 0 6px;
-    padding-bottom:14px; border-bottom:2px solid var(--accent);
-    display:inline-block;
-  }
-  #btnTema{
-    background:var(--card2); border:1px solid var(--border); color:var(--text);
-    width:40px; height:40px; padding:0; border-radius:10px; font-size:1.1rem;
-    display:flex; align-items:center; justify-content:center; flex:0 0 auto;
-  }
-  p.sub{ color:var(--muted); margin-top:14px; margin-bottom:28px; font-size:.92rem; max-width:70ch; line-height:1.5; }
-  .card{
-    background:var(--card); border:1px solid var(--border); border-radius:14px;
-    padding:24px; margin-bottom:20px;
-  }
-  label{ font-size:.78rem; color:var(--muted); display:block; margin-bottom:7px; text-transform:uppercase; letter-spacing:.06em; font-weight:600; }
-  textarea{
-    width:100%; min-height:200px; padding:12px 14px; border-radius:10px; border:1px solid var(--border);
-    background:var(--card2); color:var(--text); font-family: ui-monospace, Consolas, monospace; font-size:.85rem;
-    resize:vertical; outline:none; transition:border-color .15s ease;
-  }
-  textarea:focus{ border-color:var(--accent); }
-  .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:12px; }
-  input[type=file]{ color:var(--muted); font-size:.85rem; padding:10px 0; }
-  button{
-    padding:12px 20px; border-radius:10px; border:none; background:var(--accent);
-    color:#0b1210; font-size:.92rem; font-weight:700; letter-spacing:.01em; cursor:pointer;
-    transition:transform .08s ease, filter .15s ease, box-shadow .15s ease;
-  }
-  button:disabled{ opacity:.45; cursor:not-allowed; }
-  button:hover:not(:disabled){ filter:brightness(1.12); }
-  button:active:not(:disabled){ transform:scale(.97); }
-  button.secondary{ background:var(--card2); color:var(--text); border:1px solid var(--border); }
-  button.warn-btn{ background:rgba(201,154,66,.15); color:var(--yellow); border:1px solid var(--yellow); }
-  details.advanced{ margin-top:14px; }
-  details.advanced summary{
-    cursor:pointer; font-size:.8rem; color:var(--muted); user-select:none; list-style:none;
-    display:flex; align-items:center; gap:6px;
-  }
-  details.advanced summary::before{ content:"▸"; font-size:.7rem; transition:transform .15s ease; }
-  details.advanced[open] summary::before{ transform:rotate(90deg); }
-  details.advanced summary::-webkit-details-marker{ display:none; }
-  .orientacao-row{ font-size:.82rem; color:var(--muted); margin-top:10px; }
-  .orientacao-row label{ display:inline; margin:0; text-transform:none; letter-spacing:normal; font-weight:400; }
-  #orientacaoSelect, #situacaoDestaqueSelect{
-    padding:8px 10px; border-radius:8px; border:1px solid var(--border);
-    background:var(--card2); color:var(--text); font-size:.85rem; height:42px; box-sizing:border-box;
-  }
-  .status-line{
-    color:var(--text); font-size:.9rem; margin-top:12px; display:flex; align-items:center; gap:12px;
-    background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:10px 14px;
-  }
-  .spinner{
-    width:22px; height:22px; border-radius:50%; flex:0 0 auto;
-    border:3px solid var(--border); border-top-color:var(--accent); border-right-color:var(--accent);
-    animation:spin .7s linear infinite;
-  }
-  @keyframes spin{ to{ transform:rotate(360deg); } }
-  .status-line.done .spinner{
-    animation:none; border-color:var(--green); border-top-color:var(--green);
-    display:flex; align-items:center; justify-content:center; border-width:2px;
-  }
-  .status-line.done .spinner::after{ content:"✓"; font-size:13px; font-weight:800; color:var(--green); }
-  .progress-bar{
-    flex:1; max-width:220px; height:6px; border-radius:999px; background:var(--card2);
-    border:1px solid var(--border); overflow:hidden; position:relative;
-  }
-  .progress-bar .fill{
-    position:absolute; top:0; left:0; height:100%; width:40%; border-radius:999px;
-    background:var(--accent); animation:indeterminate 1.2s ease-in-out infinite;
-  }
-  @keyframes indeterminate{
-    0%{ left:-40%; width:40%; }
-    50%{ width:60%; }
-    100%{ left:100%; width:40%; }
-  }
-  .error{ background:rgba(221,92,79,.12); color:var(--red); padding:12px 16px; border-radius:10px; font-size:.9rem; margin-top:12px; }
+/* ═══════════════════════════════════════════════════
+   TOKENS — tema claro (principal)
+═══════════════════════════════════════════════════ */
+:root {
+  --bg:       #F5F6F8;
+  --surface:  #FFFFFF;
+  --surface2: #F0F2F5;
+  --text:     #1F2937;
+  --muted:    #6B7280;
+  --border:   #E2E5E9;
+  --blue:     #1E4E8C;
+  --blue-lt:  #EAF2FF;
+  --blue-mid: #2563B0;
+  --green:    #16835B;
+  --green-lt: #E8F5EF;
+  --amber:    #B7791F;
+  --amber-lt: #FEF3CD;
+  --red:      #C0392B;
+  --red-lt:   #FDECEA;
+  --accent:   #1E4E8C;
+  --accent-strong: #2563B0;
+  /* alias para compatibilidade com app.js que usa var(--accent) */
+  --card:     var(--surface);
+  --card2:    var(--surface2);
+}
 
-  @keyframes fadeInUp{ from{ opacity:0; transform:translateY(4px); } to{ opacity:1; transform:translateY(0); } }
-
-  .summary{ display:flex; flex-wrap:wrap; gap:12px; margin-bottom:20px; }
-  /* Os 3 totais em R$ sempre juntos na mesma linha, nunca quebram entre si */
-  .summary-totals{ flex-wrap:nowrap; overflow-x:auto; }
-  .summary-totals .stat{ flex:1 1 0; min-width:140px; }
-  .stat{
-    flex:1 1 150px; background:var(--card2); border:1px solid var(--border); border-radius:10px;
-    padding:14px; text-align:center; animation:fadeInUp .3s ease both;
+/* tema escuro — grafite/azul profundo, não preto absoluto */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:       #1A1F2B;
+    --surface:  #232B39;
+    --surface2: #1E2532;
+    --text:     #E8ECF1;
+    --muted:    #8B96A8;
+    --border:   #2E3848;
+    --blue:     #4A8FD4;
+    --blue-lt:  rgba(74,143,212,.12);
+    --blue-mid: #5B9FDF;
+    --green:    #2DAF7E;
+    --green-lt: rgba(45,175,126,.12);
+    --amber:    #D4973A;
+    --amber-lt: rgba(212,151,58,.12);
+    --red:      #E05C4F;
+    --red-lt:   rgba(224,92,79,.12);
+    --accent:   #4A8FD4;
+    --accent-strong: #5B9FDF;
+    --card:     var(--surface);
+    --card2:    var(--surface2);
   }
-  .stat .n{ font-size:1.4rem; font-weight:800; font-variant-numeric:tabular-nums; }
-  .stat .l{ font-size:.75rem; color:var(--muted); margin-top:4px; text-transform:uppercase; letter-spacing:.03em; }
-  .stat.ok .n{ color:var(--green); }
-  .stat.diff .n{ color:var(--red); }
-  .stat.warn .n{ color:var(--yellow); }
+}
+:root[data-theme="dark"] {
+  --bg:       #1A1F2B;
+  --surface:  #232B39;
+  --surface2: #1E2532;
+  --text:     #E8ECF1;
+  --muted:    #8B96A8;
+  --border:   #2E3848;
+  --blue:     #4A8FD4;
+  --blue-lt:  rgba(74,143,212,.12);
+  --blue-mid: #5B9FDF;
+  --green:    #2DAF7E;
+  --green-lt: rgba(45,175,126,.12);
+  --amber:    #D4973A;
+  --amber-lt: rgba(212,151,58,.12);
+  --red:      #E05C4F;
+  --red-lt:   rgba(224,92,79,.12);
+  --accent:   #4A8FD4;
+  --accent-strong: #5B9FDF;
+  --card:     var(--surface);
+  --card2:    var(--surface2);
+}
+:root[data-theme="light"] {
+  --bg:       #F5F6F8;
+  --surface:  #FFFFFF;
+  --surface2: #F0F2F5;
+  --text:     #1F2937;
+  --muted:    #6B7280;
+  --border:   #E2E5E9;
+  --blue:     #1E4E8C;
+  --blue-lt:  #EAF2FF;
+  --blue-mid: #2563B0;
+  --green:    #16835B;
+  --green-lt: #E8F5EF;
+  --amber:    #B7791F;
+  --amber-lt: #FEF3CD;
+  --red:      #C0392B;
+  --red-lt:   #FDECEA;
+  --accent:   #1E4E8C;
+  --accent-strong: #2563B0;
+  --card:     var(--surface);
+  --card2:    var(--surface2);
+}
 
-  table{ width:100%; border-collapse:collapse; font-size:.72rem; table-layout:fixed; }
-  th, td{ padding:6px 5px; border-bottom:1px solid var(--border); text-align:left; overflow:hidden; text-overflow:ellipsis; }
-  td{ white-space:normal; word-break:break-word; }
-  th{ color:var(--muted); font-size:.65rem; text-transform:uppercase; letter-spacing:.02em; white-space:normal; }
-  td.num{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
-  th.num{ text-align:right; }
-  .aliquota-input{
-    width:52px; padding:3px 5px; border-radius:6px; border:1px solid var(--border);
-    background:var(--card2); color:var(--text); font-size:.72rem; font-variant-numeric:tabular-nums;
+/* ═══════════════════════════════════════════════════
+   BASE
+═══════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Inter', -apple-system, 'Segoe UI', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  transition: background-color .2s, color .2s;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ═══════════════════════════════════════════════════
+   LAYOUT
+═══════════════════════════════════════════════════ */
+.wrap { max-width: 1400px; margin: 0 auto; padding: 0 24px 56px; }
+
+/* ═══════════════════════════════════════════════════
+   HEADER INSTITUCIONAL
+═══════════════════════════════════════════════════ */
+.site-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 100;
+  margin-bottom: 0;
+}
+.site-header-inner {
+  max-width: 1400px; margin: 0 auto;
+  padding: 0 24px;
+  height: 56px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+.site-brand {
+  display: flex; align-items: center; gap: 12px;
+}
+.site-brand-icon {
+  width: 32px; height: 32px;
+  background: var(--blue);
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  flex: 0 0 auto;
+}
+.site-brand-icon svg { width: 18px; height: 18px; fill: #fff; }
+.site-brand-text {}
+.site-brand-name {
+  font-size: .82rem; font-weight: 700; color: var(--text);
+  letter-spacing: .02em; line-height: 1.2;
+}
+.site-brand-sub {
+  font-size: .68rem; color: var(--muted); letter-spacing: .01em;
+}
+.site-header-actions {
+  display: flex; align-items: center; gap: 8px;
+}
+.site-version {
+  font-size: .7rem; color: var(--muted);
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 4px; padding: 2px 7px;
+}
+
+/* ═══════════════════════════════════════════════════
+   NAVEGAÇÃO (TABS)
+═══════════════════════════════════════════════════ */
+.tab-nav {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; gap: 0;
+  margin-bottom: 0;
+  padding: 0 24px;
+  max-width: 1400px; margin-left: auto; margin-right: auto;
+}
+.tab-btn {
+  padding: 0 20px; height: 44px;
+  border: none; border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: .82rem; font-weight: 600;
+  letter-spacing: .03em;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color .15s, border-color .15s;
+  white-space: nowrap;
+}
+.tab-btn.ativo { color: var(--blue); border-bottom-color: var(--blue); }
+.tab-btn:hover:not(.ativo) { color: var(--text); filter: none; }
+
+/* ═══════════════════════════════════════════════════
+   CONTEÚDO DAS ABAS
+═══════════════════════════════════════════════════ */
+.tab-content { padding-top: 24px; }
+
+/* ═══════════════════════════════════════════════════
+   PÁGINA TITLE
+═══════════════════════════════════════════════════ */
+.page-title {
+  font-size: 1.05rem; font-weight: 700; color: var(--text);
+  margin-bottom: 2px;
+}
+.page-sub {
+  font-size: .8rem; color: var(--muted); margin-bottom: 20px; max-width: 72ch; line-height: 1.55;
+}
+
+/* ═══════════════════════════════════════════════════
+   CARDS / PAINÉIS
+═══════════════════════════════════════════════════ */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.card-title {
+  font-size: .72rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .07em;
+  color: var(--muted);
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ═══════════════════════════════════════════════════
+   FORMULÁRIOS
+═══════════════════════════════════════════════════ */
+label {
+  font-size: .72rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted);
+  display: block; margin-bottom: 5px;
+}
+textarea, input[type=text], input[type=number], input[type=date], select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: .85rem;
+  outline: none;
+  transition: border-color .15s;
+}
+textarea { font-family: ui-monospace, Consolas, monospace; font-size: .82rem; min-height: 180px; resize: vertical; }
+textarea:focus, input:focus, select:focus { border-color: var(--blue); }
+input[type=file] { color: var(--muted); font-size: .82rem; padding: 7px 0; background: transparent; border: none; width: auto; }
+
+/* ═══════════════════════════════════════════════════
+   BOTÕES — hierarquia clara
+═══════════════════════════════════════════════════ */
+button {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: .82rem; font-weight: 600;
+  letter-spacing: .01em;
+  cursor: pointer;
+  transition: filter .12s, opacity .12s, box-shadow .12s;
+  white-space: nowrap;
+}
+button:disabled { opacity: .45; cursor: not-allowed; }
+button:hover:not(:disabled) { filter: brightness(1.06); }
+button:active:not(:disabled) { filter: brightness(.96); }
+
+/* Primário */
+button#btnProcessar, button.btn-primary {
+  background: var(--blue); color: #fff;
+  border-color: var(--blue);
+  padding: 9px 20px;
+}
+/* Secundário */
+button.secondary {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+button.secondary:hover:not(:disabled) {
+  border-color: var(--muted);
+  filter: none;
+}
+/* Alerta */
+button.warn-btn {
+  background: var(--amber-lt);
+  color: var(--amber);
+  border-color: rgba(183,121,31,.3);
+}
+/* Perigo */
+button.btn-danger {
+  background: var(--red-lt);
+  color: var(--red);
+  border-color: rgba(192,57,43,.3);
+}
+
+/* ═══════════════════════════════════════════════════
+   TEMA TOGGLE
+═══════════════════════════════════════════════════ */
+#btnTema {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  width: 34px; height: 34px;
+  padding: 0;
+  border-radius: 6px;
+  font-size: 1rem;
+  display: flex; align-items: center; justify-content: center;
+  flex: 0 0 auto;
+}
+
+/* ═══════════════════════════════════════════════════
+   LINHA DE AÇÕES / ROW
+═══════════════════════════════════════════════════ */
+.row {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px;
+}
+
+/* ═══════════════════════════════════════════════════
+   TOOLBAR (exportações, filtros)
+═══════════════════════════════════════════════════ */
+.toolbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.toolbar-sep {
+  width: 1px; height: 20px; background: var(--border); flex-shrink: 0;
+}
+.toolbar-label {
+  font-size: .72rem; color: var(--muted); font-weight: 500; white-space: nowrap;
+}
+.toolbar select {
+  width: auto; padding: 5px 8px; font-size: .78rem; height: 30px;
+}
+
+/* ═══════════════════════════════════════════════════
+   STATUS / PROGRESSO
+═══════════════════════════════════════════════════ */
+.status-line {
+  font-size: .82rem;
+  margin-top: 10px;
+  display: flex; align-items: center; gap: 10px;
+  background: var(--blue-lt);
+  border: 1px solid rgba(30,78,140,.2);
+  border-radius: 6px;
+  padding: 9px 13px;
+  color: var(--blue);
+}
+:root[data-theme="dark"] .status-line,
+@media (prefers-color-scheme: dark) { .status-line { color: var(--text); } }
+.status-line.done {
+  background: var(--green-lt);
+  border-color: rgba(22,131,91,.2);
+  color: var(--green);
+}
+.spinner {
+  width: 18px; height: 18px; border-radius: 50%; flex: 0 0 auto;
+  border: 2px solid rgba(30,78,140,.2);
+  border-top-color: var(--blue);
+  animation: spin .7s linear infinite;
+}
+.status-line.done .spinner {
+  animation: none;
+  border-color: var(--green);
+  display: flex; align-items: center; justify-content: center; border-width: 2px;
+}
+.status-line.done .spinner::after { content: "✓"; font-size: 11px; font-weight: 800; color: var(--green); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.progress-bar {
+  flex: 1; max-width: 200px; height: 4px; border-radius: 999px;
+  background: rgba(30,78,140,.15); overflow: hidden; position: relative;
+}
+.progress-bar .fill {
+  position: absolute; top: 0; left: 0; height: 100%; width: 40%; border-radius: 999px;
+  background: var(--blue); animation: indeterminate 1.2s ease-in-out infinite;
+}
+@keyframes indeterminate {
+  0% { left: -40%; width: 40%; }
+  50% { width: 60%; }
+  100% { left: 100%; width: 40%; }
+}
+
+.error {
+  background: var(--red-lt); color: var(--red);
+  border: 1px solid rgba(192,57,43,.2);
+  padding: 10px 13px; border-radius: 6px; font-size: .82rem; margin-top: 10px;
+}
+
+/* ═══════════════════════════════════════════════════
+   RESUMO (SUMMARY CARDS)
+═══════════════════════════════════════════════════ */
+@keyframes fadeInUp { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:translateY(0); } }
+
+.summary { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.summary-totals { flex-wrap: nowrap; overflow-x: auto; }
+.summary-totals .stat { flex: 1 1 0; min-width: 130px; }
+
+.stat {
+  flex: 1 1 140px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 12px 14px;
+  animation: fadeInUp .25s ease both;
+}
+.stat .n {
+  font-size: 1.25rem; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2; margin-bottom: 3px;
+  color: var(--text);
+}
+.stat .l {
+  font-size: .68rem; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em; font-weight: 500;
+}
+.stat.ok .n  { color: var(--green); }
+.stat.diff .n { color: var(--red); }
+.stat.warn .n { color: var(--amber); }
+
+/* ═══════════════════════════════════════════════════
+   TABELA PRINCIPAL
+═══════════════════════════════════════════════════ */
+.table-wrap { overflow-x: auto; padding: 0; }
+
+table {
+  width: 100%; border-collapse: collapse;
+  font-size: .76rem; table-layout: fixed;
+}
+thead th {
+  position: sticky; top: 56px; z-index: 10;
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: .67rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .05em;
+  padding: 9px 8px;
+  border-bottom: 2px solid var(--border);
+  border-top: 1px solid var(--border);
+  white-space: normal;
+  text-align: left;
+}
+td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  white-space: normal; word-break: break-word;
+  color: var(--text);
+}
+td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-size: .76rem;
+}
+th.num { text-align: right; }
+
+tbody tr:hover td { background: var(--surface2); }
+
+/* Linha com divergência — borda lateral em vez de fundo vermelho */
+tr.diff-row td { border-bottom: 1px solid rgba(192,57,43,.15); }
+tr.diff-row td:first-child { border-left: 3px solid var(--red); padding-left: 5px; }
+tr.diff-row td:not(:first-child) { background: rgba(192,57,43,.04); }
+
+tr.ok-row td { background: rgba(22,131,91,.03); }
+tr.ok-row td:first-child { border-left: 3px solid var(--green); padding-left: 5px; }
+
+tr.mes-divider td {
+  background: var(--blue); color: #fff;
+  font-weight: 700; font-size: .67rem;
+  letter-spacing: .07em; text-transform: uppercase;
+  padding: 5px 8px; border: none;
+}
+
+#resultsTable { min-width: 0; }
+#resultsTable col.col-credor   { width: 15%; }
+#resultsTable col.col-doc      { width: 10%; }
+#resultsTable col.col-situacao { width: 8%; }
+#resultsTable col.col-cnae     { width: 8%; }
+#resultsTable col.col-aliquota { width: 5%; }
+#resultsTable col.col-origem   { width: 10%; }
+#resultsTable col.col-num      { width: 10.75%; }
+
+/* Ordenação */
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--text); }
+th.sortable .arrow { opacity: .4; margin-left: 2px; font-size: .7em; }
+th.sortable.sort-ativo .arrow { opacity: 1; color: var(--blue); }
+
+/* ═══════════════════════════════════════════════════
+   BADGES
+═══════════════════════════════════════════════════ */
+.badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: .67rem; font-weight: 600;
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
+.badge.simples    { background: var(--green-lt); color: var(--green); }
+.badge.nao-simples{ background: var(--red-lt);   color: var(--red);   }
+.badge.pf         { background: var(--amber-lt); color: var(--amber); }
+.badge.erro       { background: var(--red-lt);   color: var(--red);   }
+.badge.excluido   { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+.badge.origem     { background: var(--blue-lt);  color: var(--blue);  font-weight: 600; white-space: normal; }
+.badge.fundido    { background: var(--amber-lt); color: var(--amber); font-weight: 600; margin-top: 2px; }
+
+/* ═══════════════════════════════════════════════════
+   INPUT ALÍQUOTA
+═══════════════════════════════════════════════════ */
+.aliquota-input {
+  width: 48px; padding: 2px 4px;
+  border-radius: 4px; border: 1px solid var(--border);
+  background: var(--surface2); color: var(--text);
+  font-size: .76rem; font-variant-numeric: tabular-nums;
+}
+.aliquota-input:focus { border-color: var(--blue); outline: none; }
+
+/* ═══════════════════════════════════════════════════
+   LOTE CHIPS
+═══════════════════════════════════════════════════ */
+.lote-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 999px; padding: 4px 10px;
+  font-size: .76rem; color: var(--muted);
+  animation: fadeInUp .2s ease both;
+}
+.lote-chip b { color: var(--text); }
+
+tbody tr { animation: fadeInUp .2s ease both; }
+
+/* ═══════════════════════════════════════════════════
+   ADVANCED DETAILS
+═══════════════════════════════════════════════════ */
+details.advanced { margin-top: 12px; }
+details.advanced summary {
+  cursor: pointer; font-size: .78rem; color: var(--muted);
+  user-select: none; list-style: none;
+  display: flex; align-items: center; gap: 5px;
+}
+details.advanced summary::before { content: "▸"; font-size: .65rem; transition: transform .15s; }
+details.advanced[open] summary::before { transform: rotate(90deg); }
+details.advanced summary::-webkit-details-marker { display: none; }
+.orientacao-row { font-size: .8rem; color: var(--muted); margin-top: 10px; }
+.orientacao-row label { display: inline; margin: 0; text-transform: none; letter-spacing: normal; font-weight: 400; }
+#orientacaoSelect, #situacaoDestaqueSelect {
+  width: auto; padding: 5px 8px; height: 30px; font-size: .78rem;
+}
+
+/* ═══════════════════════════════════════════════════
+   ABA NOTIFICAÇÕES
+═══════════════════════════════════════════════════ */
+.nf-config-grid {
+  display: grid;
+  grid-template-columns: 1fr 72px 1.6fr 1fr 1fr 80px;
+  gap: 10px 14px; align-items: end;
+}
+@media (max-width: 900px) {
+  .nf-config-grid { grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); }
+}
+.nf-config-grid label { margin-bottom: 0; display: flex; flex-direction: column; gap: 5px; }
+
+.nf-input {
+  width: 100%; padding: 7px 10px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface2); color: var(--text);
+  font-family: inherit; font-size: .84rem; outline: none;
+  transition: border-color .15s;
+}
+.nf-input:focus { border-color: var(--blue); }
+
+/* Session bar */
+#nf-session-bar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 9px 14px;
+  margin-bottom: 14px;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+#nf-session-label { font-size: .78rem; color: var(--muted); flex: 1; }
+
+/* Batch buttons */
+#nf-gerar-todas {
+  margin-bottom: 16px;
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.btn-batch-docx {
+  background: var(--blue-lt); color: var(--blue);
+  border: 1px solid rgba(30,78,140,.25);
+  padding: 9px 18px; font-size: .82rem; font-weight: 700;
+  border-radius: 6px; cursor: pointer;
+}
+.btn-batch-xlsx {
+  background: var(--green-lt); color: var(--green);
+  border: 1px solid rgba(22,131,91,.25);
+  padding: 9px 18px; font-size: .82rem; font-weight: 700;
+  border-radius: 6px; cursor: pointer;
+}
+.btn-batch-docx:hover:not(:disabled), .btn-batch-xlsx:hover:not(:disabled) { filter: brightness(1.05); }
+
+/* Cards empresa */
+.empresa-card {
+  margin-bottom: 12px;
+  border-left: 4px solid var(--blue);
+}
+.empresa-card h3 {
+  margin: 0 0 2px; font-size: .95rem; font-weight: 700;
+  color: var(--text); letter-spacing: -.01em;
+}
+.empresa-cnpj {
+  color: var(--muted); font-size: .76rem;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, Consolas, monospace;
+  margin: 0 0 14px;
+}
+
+/* Totais dos cards */
+.nf-totais { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.nf-total-chip {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px 12px;
+  font-size: .74rem; text-align: center;
+  flex: 1 1 100px; min-width: 100px;
+}
+.nf-total-chip .v { font-weight: 700; font-size: .88rem; display: block; margin-bottom: 2px; }
+.nf-total-chip .l { color: var(--muted); font-size: .66rem; text-transform: uppercase; letter-spacing: .03em; }
+
+/* Botões por empresa */
+.nf-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-docx {
+  background: var(--blue-lt); color: var(--blue);
+  border: 1px solid rgba(30,78,140,.25);
+  font-size: .78rem; padding: 7px 14px; font-weight: 600;
+}
+.btn-xlsx {
+  background: var(--green-lt); color: var(--green);
+  border: 1px solid rgba(22,131,91,.25);
+  font-size: .78rem; padding: 7px 14px; font-weight: 600;
+}
+.btn-docx:hover:not(:disabled), .btn-xlsx:hover:not(:disabled) { filter: brightness(1.06); }
+
+/* Estado vazio */
+.nf-empty {
+  text-align: center; padding: 48px 24px;
+  color: var(--muted);
+}
+.nf-empty-icon {
+  width: 48px; height: 48px; margin: 0 auto 14px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+}
+.nf-empty-icon svg { width: 24px; height: 24px; stroke: var(--muted); fill: none; }
+.nf-empty p { font-size: .84rem; color: var(--muted); margin-bottom: 16px; }
+
+/* Label de upload estilizado */
+.upload-label {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: .82rem; font-weight: 600; color: var(--text);
+  cursor: pointer; margin: 0;
+  text-transform: none; letter-spacing: normal;
+  transition: border-color .15s;
+}
+.upload-label:hover { border-color: var(--blue); color: var(--blue); }
+
+.nf-section-label {
+  font-weight: 700; font-size: .7rem;
+  text-transform: uppercase; letter-spacing: .07em;
+  color: var(--muted); margin-bottom: 12px;
+}
+
+/* ═══════════════════════════════════════════════════
+   FOOTER
+═══════════════════════════════════════════════════ */
+.footer-note {
+  color: var(--muted); font-size: .73rem;
+  line-height: 1.6; margin-top: 24px;
+  padding-top: 16px; border-top: 1px solid var(--border);
+}
+
+/* ═══════════════════════════════════════════════════
+   PRINT
+═══════════════════════════════════════════════════ */
+@media print {
+  @page { size: A4 landscape; margin: 8mm 10mm; }
+  #inputCard, .footer-note, .export-row, #btnTema,
+  #lotesBox, #statusLine, #errorBox, .tab-nav, #tabNotif,
+  .site-header, .header-row button, details,
+  .toolbar { display: none !important; }
+  html, html[data-theme="dark"], html[data-theme="light"] {
+    --bg:#fff; --surface:#fff; --surface2:#f5f5f5; --text:#111; --muted:#555;
+    --border:#ccc; --blue:#1E4E8C; --green:#16835B; --red:#C0392B; --amber:#B7791F;
+    --card:#fff; --card2:#f5f5f5;
   }
-  .aliquota-input:focus{ border-color:var(--accent); outline:none; }
-  th.sortable{ cursor:pointer; user-select:none; }
-  th.sortable:hover{ color:var(--text); }
-  th.sortable .arrow{ opacity:.5; margin-left:3px; }
-  th.sortable.sort-ativo .arrow{ opacity:1; color:var(--accent-strong); }
-  .table-wrap{ overflow-x:auto; padding:14px 16px; }
-  #resultsTable{ min-width:0; }
-  #resultsTable col.col-credor{ width:15%; }
-  #resultsTable col.col-doc{ width:10%; }
+  *, *::before, *::after { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  html, body { background:#fff !important; color:#111 !important; font-family:'Inter','Segoe UI',Arial,sans-serif; font-size:9pt; padding:0; margin:0; display:block; }
+  tr, td, th, div, span, p { background-color:transparent; color:inherit; }
+  .wrap::before {
+    content:"Apuração de Retenção de IR por CNAE — " attr(data-print-date);
+    display:block; font-size:8pt; font-weight:700; color:#333;
+    border-bottom:1.5pt solid #222; padding-bottom:3mm; margin-bottom:4mm;
+  }
+  h1, .page-sub { display:none; }
+  .summary { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:5mm; break-inside:avoid; }
+  .stat { flex:1 1 auto; background:#f7f7f7 !important; border:1pt solid #ccc !important; border-radius:3pt; padding:5px 8px; text-align:center; animation:none; }
+  .stat .n { font-size:11pt; font-weight:700; }
+  .stat .l { font-size:6.5pt; color:#666; }
+  .stat.ok .n  { color:#16835B !important; }
+  .stat.diff .n{ color:#C0392B !important; }
+  .stat.warn .n{ color:#B7791F !important; }
+  .table-wrap { overflow:visible; padding:0; }
+  table { width:100%; border-collapse:collapse; font-size:7pt; table-layout:fixed; page-break-inside:auto; }
+  thead { display:table-header-group; }
+  tr { page-break-inside:avoid; }
+  thead th { position:static; background:#2c2c2c !important; color:#fff !important; font-size:6pt; text-transform:uppercase; letter-spacing:.03em; padding:4px; border:none; border-bottom:1.5pt solid #111; }
+  td { padding:3px 4px; border-bottom:.5pt solid #ddd; font-size:7pt; vertical-align:top; }
+  td.num { text-align:right; white-space:nowrap; }
+  tr.diff-row td { background:#fdf0ef !important; border-bottom:.5pt solid #e8c4c4; }
+  tr.diff-row td:first-child { border-left:2pt solid #C0392B; }
+  tr.ok-row td { background:#f0faf5 !important; }
+  .badge { padding:1px 5px; border-radius:2pt; font-size:6pt; font-weight:700; }
+  .badge.simples    { background:#d4f2e4 !important; color:#16835B !important; }
+  .badge.nao-simples{ background:#fde8e8 !important; color:#C0392B !important; }
+  .badge.pf         { background:#fef4d8 !important; color:#B7791F !important; }
+  .badge.excluido   { background:#efefef !important; color:#555 !important; }
+  .badge.erro       { background:#fde8e8 !important; color:#C0392B !important; }
+  .badge.origem     { background:#e8f0fa !important; color:#1E4E8C !important; font-size:6pt; }
+  .badge.fundido    { background:#fef4d8 !important; color:#B7791F !important; font-size:6pt; }
+  .aliquota-input { border:none; background:transparent; width:auto; font-size:7pt; font-weight:700; color:#111; padding:0; }
+  #resultsTable col.col-credor  { width:18%; }
+  #resultsTable col.col-doc     { width:11%; }
   #resultsTable col.col-situacao{ width:8%; }
-  #resultsTable col.col-cnae{ width:8%; }
-  #resultsTable col.col-aliquota{ width:6%; }
-  #resultsTable col.col-origem{ width:10%; }
-  #resultsTable col.col-num{ width:10.75%; }
-  .badge.origem{ background:rgba(60,154,137,.15); color:var(--accent-strong); font-weight:600; white-space:normal; }
-  .badge.fundido{ background:rgba(201,154,66,.15); color:var(--yellow); font-weight:600; margin-top:3px; }
-  .lote-chip{
-    display:inline-flex; align-items:center; gap:6px; background:var(--card2); border:1px solid var(--border);
-    border-radius:999px; padding:6px 12px; font-size:.8rem; color:var(--muted);
-    animation:fadeInUp .25s ease both;
-  }
-  .lote-chip b{ color:var(--text); }
-  tbody tr{ animation:fadeInUp .25s ease both; }
-  tr.diff-row{ background:rgba(221,92,79,.08); }
-  tr.ok-row{ background:rgba(63,166,109,.05); }
-  tr.mes-divider td{ background:var(--accent); color:#fff; font-weight:700; font-size:.75rem; letter-spacing:.05em; text-transform:uppercase; padding:6px 8px; border:none; }
-  .badge{ display:inline-block; padding:2px 8px; border-radius:999px; font-size:.72rem; font-weight:600; }
-  .badge.simples{ background:rgba(63,166,109,.15); color:var(--green); }
-  .badge.nao-simples{ background:rgba(221,92,79,.15); color:var(--red); }
-  .badge.pf{ background:rgba(201,154,66,.15); color:var(--yellow); }
-  .badge.erro{ background:rgba(221,92,79,.15); color:var(--red); }
-  .badge.excluido{ background:var(--card2); color:var(--muted); border:1px solid var(--border); }
-  .footer-note{ color:var(--muted); font-size:.78rem; line-height:1.5; margin-top:28px; }
-  a{ color:var(--accent); }
-
-  /* ── Tabs ─────────────────────────────────────────────────── */
-  .tab-nav{ display:flex; gap:0; margin-bottom:24px; border-bottom:2px solid var(--border); }
-  .tab-btn{
-    padding:10px 22px; border:none; border-radius:0; background:transparent;
-    color:var(--muted); font-size:.88rem; font-weight:600; letter-spacing:.04em; cursor:pointer;
-    border-bottom:2px solid transparent; margin-bottom:-2px; transition:color .15s ease, border-color .15s ease;
-  }
-  .tab-btn.ativo{ color:var(--accent); border-bottom-color:var(--accent); }
-  .tab-btn:hover:not(.ativo){ color:var(--text); filter:none; }
-
-  /* ── Notification tab ─────────────────────────────────────── */
-  .nf-config-grid{ display:grid; grid-template-columns:1fr 80px 1.6fr 1fr 1fr 80px; gap:12px 16px; align-items:end; }
-  @media(max-width:900px){ .nf-config-grid{ grid-template-columns:repeat(auto-fill, minmax(180px,1fr)); } }
-  .nf-config-grid label{ margin-bottom:0; display:flex; flex-direction:column; gap:6px; }
-  .nf-input{
-    width:100%; padding:8px 12px; border-radius:8px; border:1px solid var(--border);
-    background:var(--card2); color:var(--text); font-size:.88rem; outline:none;
-    font-family:inherit; margin-top:6px;
-  }
-  .nf-input:focus{ border-color:var(--accent); }
-  .empresa-card{ margin-bottom:16px; }
-  .empresa-card h3{ margin:0 0 4px; font-size:1rem; font-family:Georgia,serif; }
-  .empresa-cnpj{ color:var(--muted); font-size:.82rem; margin:0 0 16px; }
-  .nf-totais{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
-  .nf-total-chip{
-    background:var(--card2); border:1px solid var(--border); border-radius:8px;
-    padding:8px 12px; font-size:.78rem; text-align:center; flex:1 1 110px; min-width:110px;
-  }
-  .nf-total-chip .v{ font-weight:700; font-size:.9rem; display:block; }
-  .nf-total-chip .l{ color:var(--muted); font-size:.7rem; }
-  .nf-empresa-inputs{ display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:10px 20px; margin-bottom:14px; }
-  .nf-empresa-inputs label{ margin-bottom:0; }
-  .nf-btns{ display:flex; gap:8px; flex-wrap:wrap; }
-  .btn-docx{ background:rgba(30,78,140,.2); color:#7baee0; border:1px solid rgba(30,78,140,.4); font-size:.85rem; padding:9px 16px; }
-  .btn-xlsx{ background:rgba(22,131,91,.2); color:#5ec49a; border:1px solid rgba(22,131,91,.4); font-size:.85rem; padding:9px 16px; }
-  .nf-empty{ text-align:center; padding:48px 24px; color:var(--muted); }
-  .nf-section-label{ font-weight:700; font-size:.78rem; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:14px; }
-
-  @media print{
-    @page{ size:A4 landscape; margin:8mm 10mm; }
-
-    /* ── Elementos ocultos na impressão ── */
-    #inputCard, .footer-note, .export-row, #btnTema,
-    #lotesBox, #statusLine, #errorBox, .tab-nav, #tabNotif,
-    .header-row button, details{ display:none !important; }
-
-    /* ── Força paleta clara independente do tema ── */
-    html, html[data-theme="dark"], html[data-theme="light"]{
-      --bg:#fff; --card:#fff; --card2:#f5f5f5; --text:#111; --muted:#555;
-      --border:#ccc; --accent:#1a7a50; --accent-strong:#1a5c54;
-      --green:#1a7a50; --red:#b83030; --yellow:#7a5500;
-    }
-    *, *::before, *::after{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    html, body{ background:#fff !important; color:#111 !important;
-      font-family:'Segoe UI',Arial,sans-serif; font-size:9pt;
-      padding:0; margin:0; display:block; }
-    /* Garante que nenhuma linha herde fundo escuro do tema */
-    tr, td, th, div, span, p{ background-color:transparent; color:inherit; }
-
-    /* ── Cabeçalho de impressão ── */
-    .wrap::before{
-      content:"Apuração de Retenção de IR por CNAE — " attr(data-print-date);
-      display:block; font-size:8pt; font-weight:700; color:#333;
-      border-bottom:1.5pt solid #222; padding-bottom:3mm; margin-bottom:4mm;
-      letter-spacing:.02em;
-    }
-    h1{ display:none; }
-    .sub{ display:none; }
-
-    /* ── Cards de resumo ── */
-    .summary{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:5mm; break-inside:avoid; }
-    .summary-totals{ flex-wrap:nowrap; }
-    .stat{
-      flex:1 1 auto; background:#f7f7f7 !important; border:1pt solid #ccc !important;
-      border-radius:3pt; padding:5px 8px; text-align:center; animation:none;
-    }
-    .stat .n{ font-size:11pt; font-weight:700; }
-    .stat .l{ font-size:6.5pt; color:#666; margin-top:2px; }
-    .stat.ok .n{ color:#1a7a50 !important; }
-    .stat.diff .n{ color:#b83030 !important; }
-    .stat.warn .n{ color:#8a6a10 !important; }
-
-    /* ── Tabela ── */
-    .table-wrap{ overflow:visible; padding:0; }
-    table{
-      width:100%; border-collapse:collapse; font-size:7pt;
-      table-layout:fixed; page-break-inside:auto;
-    }
-    thead{ display:table-header-group; } /* repete cabeçalho a cada página */
-    tr{ page-break-inside:avoid; }
-
-    th{
-      position:static; background:#2c2c2c !important; color:#fff !important;
-      font-size:6pt; text-transform:uppercase; letter-spacing:.03em;
-      padding:4px 4px; border:none; border-bottom:1.5pt solid #111;
-      white-space:normal; vertical-align:bottom;
-    }
-    td{
-      padding:3px 4px; border-bottom:.5pt solid #ddd;
-      font-size:7pt; vertical-align:top; word-break:break-word; white-space:normal;
-    }
-    td.num{ text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
-
-    /* ── Linhas coloridas ── */
-    tr.diff-row{ background:#fdf0ef !important; }
-    tr.ok-row{ background:#f0faf5 !important; }
-    tr.diff-row td{ border-bottom:.5pt solid #e8c4c4; }
-
-    /* ── Badges ── */
-    .badge{ padding:1px 5px; border-radius:2pt; font-size:6pt; font-weight:700; }
-    .badge.simples{ background:#d4f2e4 !important; color:#1a7a50 !important; }
-    .badge.nao-simples{ background:#fde8e8 !important; color:#b83030 !important; }
-    .badge.pf{ background:#fef4d8 !important; color:#7a5500 !important; }
-    .badge.excluido{ background:#efefef !important; color:#555 !important; }
-    .badge.erro{ background:#fde8e8 !important; color:#b83030 !important; }
-    .badge.origem{ background:#e8f4f2 !important; color:#1a5c54 !important; font-size:6pt; }
-    .badge.fundido{ background:#fef4d8 !important; color:#7a5500 !important; font-size:6pt; }
-
-    /* ── Input de alíquota → texto simples ── */
-    .aliquota-input{
-      border:none; background:transparent; width:auto;
-      font-size:7pt; font-weight:700; color:#111; padding:0;
-    }
-
-    /* ── Larguras das colunas para paisagem A4 ── */
-    #resultsTable col.col-credor  { width:18%; }
-    #resultsTable col.col-doc     { width:11%; }
-    #resultsTable col.col-situacao{ width:8%;  }
-    #resultsTable col.col-cnae    { width:7%;  }
-    #resultsTable col.col-aliquota{ width:5%;  }
-    #resultsTable col.col-origem  { width:9%;  }
-    #resultsTable col.col-num     { width:10.5%; }
-  }
+  #resultsTable col.col-cnae    { width:7%; }
+  #resultsTable col.col-aliquota{ width:5%; }
+  #resultsTable col.col-origem  { width:9%; }
+  #resultsTable col.col-num     { width:10.5%; }
+}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="header-row">
-    <h1>Apuração de Retenção de IR por CNAE</h1>
-    <button id="btnTema" title="Alternar tema claro/escuro" aria-label="Alternar tema claro/escuro">🌙</button>
-  </div>
-  <p class="sub">Cole (ou envie um .txt com) o relatório de retenção. Para cada CNPJ, consultamos a Receita (CNAE principal e opção pelo Simples) e comparamos a retenção informada no relatório com a que deveria ter sido aplicada, segundo a tabela de CNAE.</p>
 
+<!-- ══════════════════ HEADER INSTITUCIONAL ══════════════════ -->
+<header class="site-header">
+  <div class="site-header-inner">
+    <div class="site-brand">
+      <div class="site-brand-icon">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+        </svg>
+      </div>
+      <div class="site-brand-text">
+        <div class="site-brand-name">IRRF Audit</div>
+        <div class="site-brand-sub">Apuração de Retenção na Fonte</div>
+      </div>
+    </div>
+    <div class="site-header-actions">
+      <span class="site-version">v2.0</span>
+      <button id="btnTema" title="Alternar tema claro/escuro" aria-label="Alternar tema">🌙</button>
+    </div>
+  </div>
+</header>
+
+<!-- ══════════════════ NAVEGAÇÃO ══════════════════ -->
+<nav>
   <div class="tab-nav">
     <button class="tab-btn ativo" id="tabBtnApuracao">Apuração</button>
     <button class="tab-btn" id="tabBtnNotif">Notificações</button>
   </div>
+</nav>
 
-  <div id="tabApuracao">
-  <div class="card" id="inputCard">
-    <label for="txtInput">Bloco de texto do relatório</label>
-    <textarea id="txtInput" placeholder="Cole aqui as linhas do relatório, ex:&#10;11212 - ALEXANDRE SALMEN E WAGNER BORGES ADVOGADOS ASSOCIADOS 07.168.791/0001-02 JUNHO 12.000,00 460,80"></textarea>
-    <div class="row">
-      <input type="file" id="fileInput" accept=".txt,.pdf,.xlsx">
-      <input type="text" id="origemInput" placeholder="Nome deste relatório (ex: OBRAS, IR JUNHO)..." style="flex:1; min-width:200px; padding:12px 14px; border-radius:10px; border:1px solid var(--border); background:var(--card2); color:var(--text); font-size:.9rem;">
-      <button id="btnProcessar">Processar</button>
-      <button id="btnLimpar" class="secondary">Limpar campo</button>
-      <button id="btnNovoLote" class="secondary" style="display:none;">Novo lote (limpar tudo)</button>
-    </div>
-    <div id="lotesBox" class="row" style="display:none;"></div>
-    <details class="advanced">
-      <summary>Opções avançadas</summary>
-      <div class="row orientacao-row">
-        <label style="margin:0;">Orientação do PDF escaneado (deixe em Automático se não souber):</label>
-        <select id="orientacaoSelect">
-          <option value="auto">Automático (detecta sozinho, mais lento)</option>
-          <option value="retrato">Retrato (documento na posição normal) — mais rápido</option>
-          <option value="paisagem">Paisagem (documento deitado) — mais rápido</option>
-        </select>
+<!-- ══════════════════ CONTEÚDO ══════════════════ -->
+<div class="wrap">
+
+  <!-- ── ABA APURAÇÃO ────────────────────────────────── -->
+  <div id="tabApuracao" class="tab-content">
+
+    <div class="page-title" style="margin-top:20px;">Apuração de Retenção de IRRF</div>
+    <p class="page-sub">Importe o relatório de pagamentos. Para cada CNPJ, consultamos a Receita Federal (CNAE principal e Simples Nacional) e comparamos a retenção realizada com a devida conforme tabela de alíquotas.</p>
+
+    <!-- Painel de importação -->
+    <div class="card" id="inputCard">
+      <div class="card-title">Importar Relatório de Pagamentos</div>
+      <label for="txtInput">Conteúdo do relatório</label>
+      <textarea id="txtInput" placeholder="Cole aqui as linhas do relatório, ex:&#10;11212 - ALEXANDRE SALMEN E WAGNER BORGES ADVOGADOS ASSOCIADOS 07.168.791/0001-02 JUNHO 12.000,00 460,80"></textarea>
+      <div class="row">
+        <input type="file" id="fileInput" accept=".txt,.pdf,.xlsx">
+        <input type="text" id="origemInput" placeholder="Nome do relatório (ex: OBRAS, IR JUNHO)…" style="flex:1; min-width:180px;">
+        <button id="btnProcessar">Processar Apuração</button>
+        <button id="btnLimpar" class="secondary">Limpar</button>
+        <button id="btnNovoLote" class="secondary" style="display:none;">Novo lote</button>
       </div>
-    </details>
-    <div id="statusLine" class="status-line" style="display:none;">
-      <span class="spinner"></span>
-      <span id="statusText"></span>
+      <div id="lotesBox" class="row" style="display:none;"></div>
+      <details class="advanced">
+        <summary>Opções avançadas</summary>
+        <div class="row orientacao-row">
+          <label style="margin:0;">Orientação do PDF escaneado:</label>
+          <select id="orientacaoSelect">
+            <option value="auto">Automático (detecta sozinho, mais lento)</option>
+            <option value="retrato">Retrato — mais rápido</option>
+            <option value="paisagem">Paisagem — mais rápido</option>
+          </select>
+        </div>
+      </details>
+      <div id="statusLine" class="status-line" style="display:none;">
+        <span class="spinner"></span>
+        <div class="progress-bar"><div class="fill"></div></div>
+        <span id="statusText"></span>
+      </div>
+      <div id="errorBox" class="error" style="display:none;"></div>
     </div>
-    <div id="errorBox" class="error" style="display:none;"></div>
-  </div>
 
-  <div id="resultsCard" style="display:none;">
-    <div class="summary" id="summaryBox"></div>
-    <div class="summary summary-totals" id="summaryTotalsBox"></div>
-    <div class="row export-row" style="margin:0 0 16px;">
-      <button id="btnExportExcel" class="secondary">Exportar Excel</button>
-      <button id="btnExportPdf" class="secondary">Exportar PDF</button>
-      <button id="btnReprocessarErros" class="warn-btn" style="display:none;">Reprocessar só os com erro</button>
-      <span style="margin-left:auto; display:flex; align-items:center; gap:8px;">
-        <label for="situacaoDestaqueSelect" style="margin:0; text-transform:none; letter-spacing:normal; font-weight:400; color:var(--muted); font-size:.82rem;">Destacar situação:</label>
+    <!-- Resultados -->
+    <div id="resultsCard" style="display:none;">
+      <div class="summary" id="summaryBox"></div>
+      <div class="summary summary-totals" id="summaryTotalsBox"></div>
+
+      <!-- Toolbar superior -->
+      <div class="toolbar export-row">
+        <button id="btnExportExcel" class="secondary">Exportar Excel</button>
+        <button id="btnExportPdf" class="secondary">Exportar PDF</button>
+        <button id="btnReprocessarErros" class="warn-btn" style="display:none;">Reprocessar erros</button>
+        <div class="toolbar-sep"></div>
+        <span class="toolbar-label">Destacar:</span>
         <select id="situacaoDestaqueSelect">
           <option value="">Ordem padrão</option>
           <option value="simples">Optante Simples</option>
@@ -365,90 +847,120 @@
           <option value="excluido">Fora do escopo</option>
           <option value="erro">Erro</option>
         </select>
-      </span>
+      </div>
+
+      <!-- Tabela -->
+      <div class="card" style="padding:0; overflow:hidden;">
+        <div class="table-wrap">
+          <table id="resultsTable">
+            <colgroup>
+              <col class="col-credor"><col class="col-doc"><col class="col-situacao">
+              <col class="col-cnae"><col class="col-aliquota"><col class="col-origem">
+              <col class="col-num"><col class="col-num"><col class="col-num"><col class="col-num">
+            </colgroup>
+            <thead>
+              <tr id="resultsHeadRow">
+                <th class="sortable" data-campo="credor">Credor<span class="arrow">↕</span></th>
+                <th class="sortable" data-campo="documento">CNPJ / CPF<span class="arrow">↕</span></th>
+                <th class="sortable" data-campo="situacao">Situação<span class="arrow">↕</span></th>
+                <th class="sortable" data-campo="cnae">CNAE<span class="arrow">↕</span></th>
+                <th class="sortable" data-campo="aliquota">%<span class="arrow">↕</span></th>
+                <th class="sortable" data-campo="origem">Origem<span class="arrow">↕</span></th>
+                <th class="num sortable" data-campo="valorPago">Vlr. Pago<span class="arrow">↕</span></th>
+                <th class="num sortable" data-campo="retencaoEsperada">Ret. Esperada<span class="arrow">↕</span></th>
+                <th class="num sortable" data-campo="retencaoTxt">Ret. Relatório<span class="arrow">↕</span></th>
+                <th class="num sortable" data-campo="diferenca">Diferença<span class="arrow">↕</span></th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Toolbar inferior -->
+      <div class="toolbar export-row" style="margin-top:10px; margin-bottom:0;">
+        <button id="btnExportExcel2" class="secondary">Exportar Excel</button>
+        <button id="btnExportPdf2" class="secondary">Exportar PDF</button>
+        <button id="btnReprocessarErros2" class="warn-btn" style="display:none;">Reprocessar erros</button>
+      </div>
     </div>
-    <div class="card table-wrap">
-      <table id="resultsTable">
-        <colgroup>
-          <col class="col-credor"><col class="col-doc"><col class="col-situacao">
-          <col class="col-cnae"><col class="col-aliquota"><col class="col-origem">
-          <col class="col-num"><col class="col-num"><col class="col-num"><col class="col-num">
-        </colgroup>
-        <thead>
-          <tr id="resultsHeadRow">
-            <th class="sortable" data-campo="credor">Credor<span class="arrow">↕</span></th>
-            <th class="sortable" data-campo="documento">CNPJ/CPF<span class="arrow">↕</span></th>
-            <th class="sortable" data-campo="situacao">Situação<span class="arrow">↕</span></th>
-            <th class="sortable" data-campo="cnae">CNAE<span class="arrow">↕</span></th>
-            <th class="sortable" data-campo="aliquota">%<span class="arrow">↕</span></th>
-            <th class="sortable" data-campo="origem">Origem<span class="arrow">↕</span></th>
-            <th class="num sortable" data-campo="valorPago">Vlr. Pago<span class="arrow">↕</span></th>
-            <th class="num sortable" data-campo="retencaoEsperada">Ret. Esperada<span class="arrow">↕</span></th>
-            <th class="num sortable" data-campo="retencaoTxt">Ret. Relatório<span class="arrow">↕</span></th>
-            <th class="num sortable" data-campo="diferenca">Diferença<span class="arrow">↕</span></th>
-          </tr>
-        </thead>
-        <tbody id="resultsBody"></tbody>
-      </table>
-    </div>
-    <div class="row export-row" style="margin:16px 0 0;">
-      <button id="btnExportExcel2" class="secondary">Exportar Excel</button>
-      <button id="btnExportPdf2" class="secondary">Exportar PDF</button>
-      <button id="btnReprocessarErros2" class="warn-btn" style="display:none;">Reprocessar só os com erro</button>
-    </div>
-  </div>
 
   </div><!-- /#tabApuracao -->
 
-  <!-- ── Tab Notificações ─────────────────────────────────── -->
-  <div id="tabNotif" style="display:none;">
+  <!-- ── ABA NOTIFICAÇÕES ────────────────────────────── -->
+  <div id="tabNotif" class="tab-content" style="display:none;">
+
+    <div class="page-title" style="margin-top:20px;">Notificações de Inconsistência de IRRF</div>
+    <p class="page-sub">Gere notificações individuais para os credores com retenção inferior à devida. Preencha as configurações abaixo e exporte os documentos em DOCX e XLSX.</p>
+
+    <!-- Configuração -->
     <div class="card">
-      <div class="nf-section-label">Configuração da Notificação</div>
+      <div class="card-title">Configuração da Notificação</div>
       <div class="nf-config-grid">
         <label>Município<input class="nf-input" id="nf-municipio" value="COROACI" placeholder="Município"></label>
-        <label>Estado<input class="nf-input" id="nf-estado" value="MG" placeholder="UF" style="max-width:80px;"></label>
-        <label>Nome do Auditor / Fiscal Tributário<input class="nf-input" id="nf-auditor" placeholder="Nome completo"></label>
+        <label>UF<input class="nf-input" id="nf-estado" value="MG" placeholder="UF"></label>
+        <label>Auditor / Fiscal Tributário<input class="nf-input" id="nf-auditor" placeholder="Nome completo"></label>
         <label>Matrícula<input class="nf-input" id="nf-matricula" placeholder="Nº da matrícula"></label>
         <label>Data da Notificação<input class="nf-input" type="date" id="nf-data"></label>
-        <label>Nº inicial da notificação<input class="nf-input" type="number" id="nf-numini" value="1" min="1" step="1" title="A primeira empresa receberá este número; as seguintes seguem em sequência"></label>
+        <label>Nº inicial<input class="nf-input" type="number" id="nf-numini" value="1" min="1" step="1" title="Número sequencial da primeira notificação"></label>
       </div>
-      <div style="margin-top:14px; display:flex; justify-content:flex-end;">
-        <button onclick="limparConfigNotif()" style="padding:7px 18px; font-size:.82rem; font-weight:600; background:transparent; color:var(--muted); border:1px solid var(--border); border-radius:8px; cursor:pointer; transition:all .15s;" onmouseover="this.style.color='var(--text)';this.style.borderColor='var(--text)'" onmouseout="this.style.color='var(--muted)';this.style.borderColor='var(--border)'">🗑 Limpar campos</button>
+      <div style="margin-top:12px; display:flex; justify-content:flex-end;">
+        <button onclick="limparConfigNotif()" class="secondary" style="font-size:.76rem; padding:6px 14px;">
+          Limpar campos e dados
+        </button>
       </div>
     </div>
 
-    <div id="nf-session-bar" style="display:none; margin-bottom:16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-      <span id="nf-session-label" style="font-size:.82rem; color:var(--muted); flex:1;"></span>
-      <label style="margin:0; display:flex; align-items:center; gap:8px; cursor:pointer; font-size:.82rem; color:var(--muted); text-transform:none; letter-spacing:normal; font-weight:400;">
-        Carregar PDF ou Excel exportado:
-        <input type="file" id="nf-file-input" accept=".xlsx,.pdf" style="font-size:.8rem; color:var(--muted);">
+    <!-- Session bar -->
+    <div id="nf-session-bar" style="display:none;">
+      <span id="nf-session-label"></span>
+      <label class="upload-label" style="cursor:pointer;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+        Carregar arquivo
+        <input type="file" id="nf-file-input" accept=".xlsx,.pdf" style="display:none;">
       </label>
     </div>
 
-    <div id="nf-gerar-todas" style="display:none; margin-bottom:20px; display:flex; gap:10px; flex-wrap:wrap;">
-      <button onclick="gerarTodasDocx()" style="padding:13px 24px; font-size:.95rem; font-weight:700; background:rgba(30,78,140,.25); color:#7baee0; border:1px solid rgba(30,78,140,.5); border-radius:10px; cursor:pointer;">📄 Gerar todos os DOCX</button>
-      <button onclick="gerarTodasXlsx()" style="padding:13px 24px; font-size:.95rem; font-weight:700; background:rgba(22,131,91,.25); color:#5ec49a; border:1px solid rgba(22,131,91,.5); border-radius:10px; cursor:pointer;">📊 Gerar todos os XLSX</button>
+    <!-- Botões em lote -->
+    <div id="nf-gerar-todas" style="display:none;">
+      <button class="btn-batch-docx" onclick="gerarTodasDocx()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Gerar todos os DOCX
+      </button>
+      <button class="btn-batch-xlsx" onclick="gerarTodasXlsx()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+        Gerar todos os XLSX
+      </button>
     </div>
 
+    <!-- Cards das empresas -->
     <div id="nf-empresas"></div>
 
+    <!-- Estado vazio -->
     <div id="nf-empty" class="card nf-empty">
-      <div style="font-size:2.5rem;margin-bottom:12px;">📂</div>
-      <div style="margin-bottom:16px;">Processe um relatório na aba <strong>Apuração</strong>, ou carregue um arquivo exportado anteriormente:</div>
-      <label style="cursor:pointer; display:inline-flex; align-items:center; gap:8px; background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:10px 18px; font-size:.88rem; color:var(--text); text-transform:none; letter-spacing:normal; font-weight:600; margin:0;">
-        📥 Carregar PDF ou Excel exportado
+      <div class="nf-empty-icon">
+        <svg viewBox="0 0 24 24" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 7h18M3 12h18M3 17h18"/>
+        </svg>
+      </div>
+      <p>Processe um relatório na aba <strong>Apuração</strong>, ou carregue um arquivo exportado anteriormente.</p>
+      <label class="upload-label" style="margin:0 auto; cursor:pointer;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+        Carregar PDF ou Excel exportado
         <input type="file" id="nf-file-input-empty" accept=".xlsx,.pdf" style="display:none;">
       </label>
     </div>
+
   </div><!-- /#tabNotif -->
 
+  <!-- FOOTER -->
   <div class="footer-note">
     Dados cadastrais e opção pelo Simples Nacional via <a href="https://brasilapi.com.br" target="_blank" rel="noopener">BrasilAPI</a> (fonte: Receita Federal).
-    Alíquota calculada a partir do CNAE fiscal principal na tabela fornecida ("TABELA PARAMETRO CNAE"). Empresas optantes pelo Simples Nacional são consideradas com retenção esperada de 0%, conforme dispensa de retenção de tributos federais na fonte (LC 123/2006).
-    Linhas com CPF (pessoa física) não passam pela validação de CNAE/Simples (a tabela é por pessoa jurídica); o valor retido informado é repetido como "esperado" apenas para não gerar diferença no somatório final.
-    Credores identificados como conselho de classe, consórcio, banco, instituição pública ou cartório ficam marcados "Fora do escopo" e não entram na apuração de retenção. Pagamentos à CEMIG classificados como COSIP (contribuição de iluminação pública) também ficam fora do escopo.
+    Alíquota calculada a partir do CNAE fiscal principal. Empresas optantes pelo Simples Nacional têm retenção esperada de 0% (LC 123/2006).
+    CPFs não passam por validação de CNAE/Simples. Credores identificados como conselho, consórcio, banco, instituição pública ou cartório ficam como "Fora do escopo".
   </div>
-</div>
+
+</div><!-- /.wrap -->
 
 <script src="pdf.min.js"></script>
 <script src="tesseract.min.js"></script>
