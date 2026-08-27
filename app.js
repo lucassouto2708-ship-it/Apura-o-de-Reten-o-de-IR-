@@ -2032,7 +2032,7 @@ function carregarXlsxExportado(file) {
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
       // Find header row (contains 'Credor' or 'CNPJ')
       let hIdx = rows.findIndex(r => r.some(c => /credor/i.test(String(c))));
-      if (hIdx < 0) { alert('Não foi possível identificar o cabeçalho da planilha.'); return; }
+      if (hIdx < 0) { _nfHideLoading(); alert('Não foi possível identificar o cabeçalho da planilha.'); return; }
       const header = rows[hIdx].map(h => String(h).toLowerCase().trim());
       const iNome  = header.findIndex(h => h.includes('credor'));
       const iDoc   = header.findIndex(h => h.includes('cnpj') || h.includes('cpf'));
@@ -2070,12 +2070,14 @@ function carregarXlsxExportado(file) {
         });
       }
 
-      if (!registros.length) { alert('Nenhum registro encontrado na planilha.'); return; }
+      if (!registros.length) { _nfHideLoading(); alert('Nenhum registro encontrado na planilha.'); return; }
       ultimosResultados = registros;
       salvarResultadosLS(registros);
       renderResultados(registros);
-      renderNotifTab(`Planilha: ${file.name} — ${registros.length} registros`);
+      _nfHideLoading();
+      renderNotifTab(`Planilha: ${file.name}`);
     } catch(err) {
+      _nfHideLoading();
       alert('Erro ao ler a planilha: ' + err.message);
     }
   };
@@ -2108,25 +2110,52 @@ async function gerarTodasXlsx() {
 }
 
 // ── Dispatcher: PDF or XLSX ───────────────────────────────────────────────────
+function _nfShowLoading(msg) {
+  let ov = document.getElementById('nf-loading-overlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'nf-loading-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:16px;';
+    ov.innerHTML = `
+      <div style="width:48px;height:48px;border:4px solid rgba(255,255,255,.2);border-top-color:#7baee0;border-radius:50%;animation:nf-spin .8s linear infinite;"></div>
+      <div id="nf-loading-msg" style="color:#fff;font-size:1rem;font-weight:600;letter-spacing:.02em;"></div>`;
+    if (!document.getElementById('nf-spin-style')) {
+      const s = document.createElement('style');
+      s.id = 'nf-spin-style';
+      s.textContent = '@keyframes nf-spin{to{transform:rotate(360deg)}}';
+      document.head.appendChild(s);
+    }
+    document.body.appendChild(ov);
+  }
+  document.getElementById('nf-loading-msg').textContent = msg || 'Processando…';
+  ov.style.display = 'flex';
+}
+function _nfHideLoading() {
+  const ov = document.getElementById('nf-loading-overlay');
+  if (ov) ov.style.display = 'none';
+}
+
 async function carregarArquivoExportado(file) {
   if (!file) return;
   const isPdf = /\.pdf$/i.test(file.name);
   if (isPdf) {
-    const lbl = document.getElementById('nf-session-label');
-    if (lbl) lbl.textContent = 'Lendo PDF…';
+    _nfShowLoading('Lendo PDF, aguarde…');
     try {
       const buf = await file.arrayBuffer();
       const regs = await parsePdfExportado(buf);
+      _nfHideLoading();
       if (!regs || !regs.length) { alert('Não foi possível extrair registros deste PDF.\nCertifique-se de usar um PDF exportado por esta ferramenta.'); return; }
       ultimosResultados = regs;
       salvarResultadosLS(regs);
       renderResultados(regs);
-      renderNotifTab(`PDF: ${file.name} — ${regs.length} registros`);
+      renderNotifTab(`PDF: ${file.name}`);
     } catch(err) {
+      _nfHideLoading();
       alert('Erro ao ler o PDF: ' + err.message);
     }
   } else {
-    carregarXlsxExportado(file);
+    _nfShowLoading('Carregando planilha…');
+    setTimeout(() => { carregarXlsxExportado(file); }, 50);
   }
 }
 
