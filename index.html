@@ -487,15 +487,32 @@ tr.mes-divider td {
   border-bottom: 1px solid var(--border);
 }
 
-/* Separador de lote fundido — âmbar para indicar atenção */
+/* Separador de lote fundido — âmbar destacado para indicar atenção */
 tr.lote-divider td {
-  background: var(--amber-lt);
-  color: var(--amber);
+  background: #FEF08A;
+  color: #92400E;
   font-weight: 700; font-size: .67rem;
   letter-spacing: .06em; text-transform: uppercase;
   padding: 5px 8px;
-  border-top: 1px solid rgba(183,121,31,.2);
-  border-bottom: 1px solid rgba(183,121,31,.2);
+  border-top: 2px solid #F59E0B;
+  border-bottom: 2px solid #F59E0B;
+  border-left: 4px solid #F59E0B;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) tr.lote-divider td {
+    background: rgba(245,158,11,.18);
+    color: #FBBF24;
+    border-top-color: rgba(245,158,11,.5);
+    border-bottom-color: rgba(245,158,11,.5);
+    border-left-color: #FBBF24;
+  }
+}
+:root[data-theme="dark"] tr.lote-divider td {
+  background: rgba(245,158,11,.18);
+  color: #FBBF24;
+  border-top-color: rgba(245,158,11,.5);
+  border-bottom-color: rgba(245,158,11,.5);
+  border-left-color: #FBBF24;
 }
 
 #resultsTable { min-width: 0; }
@@ -752,7 +769,7 @@ details.advanced summary::-webkit-details-marker { display: none; }
   tr.diff-row td:first-child { border-left:2pt solid #C0392B; }
   tr.ok-row td { background:#f0faf5 !important; }
   tr.mes-divider td { background:#eeeeee !important; color:#555 !important; }
-  tr.lote-divider td { background:#fef3cd !important; color:#7a5500 !important; }
+  tr.lote-divider td { background:#FEF08A !important; color:#92400E !important; border-left:4px solid #F59E0B !important; }
   .badge { padding:1px 5px; border-radius:2pt; font-size:6pt; font-weight:700; }
   .badge.simples    { background:#d4f2e4 !important; color:#16835B !important; }
   .badge.nao-simples{ background:#fde8e8 !important; color:#C0392B !important; }
@@ -985,6 +1002,6 @@ details.advanced summary::-webkit-details-marker { display: none; }
 <script src="jszip.min.js"></script>
 <script src="notif-template.js"></script>
 <script src="cnae-data.js"></script>
-<script src="app.js"></script>
+<script src="app.js?v=20260827"></script>
 </body>
 </html>

@@ -1259,7 +1259,7 @@ function renderResultados(resultados) {
     if (divergente) comDivergencia++; else semDivergencia++;
     somaEsperada += r.retencaoEsperada;
     somaTxt += r.retencaoTxt;
-    somaDiferenca += Math.min(r.diferenca, 0);
+    somaDiferenca += r.diferenca;
 
     return `<tr class="${divergente ? 'diff-row' : 'ok-row'}">
       <td>${renderNomeCell(r)}</td>
@@ -1529,7 +1529,7 @@ function renderNotifTab(fonteLabel) {
     const totalBruto    = emp.registros.reduce((s, r) => s + (r.valorPago         || 0), 0);
     const totalDevido   = emp.registros.reduce((s, r) => s + (r.retencaoEsperada  || 0), 0);
     const totalRetido   = emp.registros.reduce((s, r) => s + (r.retencaoTxt       || 0), 0);
-    const totalDif      = emp.registros.reduce((s, r) => s + (Math.min(r.diferenca || 0, 0)), 0);
+    const totalDif      = totalDevido - totalRetido;
     const cnpjFmt = formatCnpj(onlyDigits(emp.documento));
 
     return `<div class="card empresa-card" id="empresa-card-${idx}">
@@ -1699,7 +1699,7 @@ async function gerarXlsxEmpresa(idx) {
       { t:'n', v: aliq,             z: '0.0' },
       { t:'n', f:`E${row}*F${row}/100`, z: BRL },
       { t:'n', v: r.retencaoTxt,   z: BRL },
-      { t:'n', f:`MAX(G${row}-H${row},0)`, z: BRL },
+      { t:'n', f:`G${row}-H${row}`, z: BRL },
       { t:'n', v: selic,                  z: PCT },
       { t:'n', f:`I${row}+(I${row}*J${row}/100)`, z: BRL },
     ];
@@ -1748,7 +1748,7 @@ async function gerarDocxEmpresa(idx) {
   } catch(_) {}
 
   // Valor principal = soma das diferenças negativas; atualização = por nota com SELIC do mês
-  const valorPrincipal = regs.reduce((s, r) => s + Math.abs(Math.min(r.diferenca || 0, 0)), 0);
+  const valorPrincipal = Math.abs(regs.reduce((s, r) => s + (r.diferenca || 0), 0));
   const atualizacao    = regs.reduce((s, r) => {
     const dif   = Math.abs(Math.min(r.diferenca || 0, 0));
     const selic = calcSelicAcumulada(r.origem, selicData);
