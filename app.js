@@ -1699,7 +1699,7 @@ async function gerarPdfEmpresa(idx) {
   doc.text(`Credor: ${emp.nome}   CNPJ: ${cnpjFmt}`, 14, 20);
 
   // Dados da tabela
-  const head = [['ITEM','CREDOR','CNPJ','DATA LIQUIDAÇÃO','VALOR BRUTO','ALÍQ. %','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA','SELIC %','VL. ATUALIZADO']];
+  const head = [['#','CREDOR','CNPJ','DATA LIQ.','VALOR BRUTO','ALÍQ.%','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA','SELIC%','VL. ATUALIZADO']];
   let somaVB=0, somaDev=0, somaRet=0, somaDif=0, somaAtual=0;
 
   const body = regs.map((r, i) => {
