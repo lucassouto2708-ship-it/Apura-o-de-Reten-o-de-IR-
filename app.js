@@ -1733,24 +1733,26 @@ async function gerarPdfEmpresa(idx) {
   // Linha de totais
   body.push(['TOTAL','','','', fmtBRL(somaVB),'', fmtBRL(somaDev), fmtBRL(somaRet), fmtBRL(somaDif),'', fmtBRL(somaAtual)]);
 
+  // Larguras: soma = 267mm para A4 landscape com margens 14mm (269mm disponíveis)
   doc.autoTable({
     head,
     body,
     startY: 24,
-    styles: { fontSize: 6.5, cellPadding: 1.5, overflow: 'linebreak' },
-    headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', halign: 'center' },
+    tableWidth: 'wrap',
+    styles: { fontSize: 6.5, cellPadding: 2, overflow: 'linebreak', valign: 'middle' },
+    headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', halign: 'center', minCellHeight: 8 },
     columnStyles: {
-      0: { halign: 'center', cellWidth: 8 },
-      1: { cellWidth: 40 },
-      2: { cellWidth: 28 },
-      3: { cellWidth: 22 },
-      4: { halign: 'right', cellWidth: 20 },
-      5: { halign: 'right', cellWidth: 12 },
-      6: { halign: 'right', cellWidth: 20 },
-      7: { halign: 'right', cellWidth: 20 },
-      8: { halign: 'right', cellWidth: 20 },
-      9: { halign: 'right', cellWidth: 14 },
-      10:{ halign: 'right', cellWidth: 22 },
+      0:  { halign: 'center', cellWidth: 9 },
+      1:  { cellWidth: 58 },
+      2:  { cellWidth: 32 },
+      3:  { cellWidth: 22 },
+      4:  { halign: 'right', cellWidth: 24 },
+      5:  { halign: 'right', cellWidth: 12 },
+      6:  { halign: 'right', cellWidth: 24 },
+      7:  { halign: 'right', cellWidth: 24 },
+      8:  { halign: 'right', cellWidth: 24 },
+      9:  { halign: 'right', cellWidth: 14 },
+      10: { halign: 'right', cellWidth: 24 },
     },
     didParseCell(data) {
       const lastRow = body.length - 1;
