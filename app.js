@@ -1544,6 +1544,7 @@ function renderNotifTab(fonteLabel) {
       <div class="nf-btns">
         <button class="btn-docx" onclick="gerarDocxEmpresa(${idx})">📄 Gerar DOCX</button>
         <button class="btn-xlsx" onclick="gerarXlsxEmpresa(${idx})">📊 Gerar XLSX</button>
+        <button class="btn-pdf" onclick="gerarPdfEmpresa(${idx})">🖨️ Gerar PDF</button>
       </div>
     </div>`;
   }).join('');
@@ -1665,6 +1666,121 @@ async function fetchEndereco(cnpj) {
       d.cep       ? `CEP ${d.cep}`     : null,
     ].filter(Boolean).join(', ');
   } catch { return null; }
+}
+
+// ── PDF generation ────────────────────────────────────────────────────────────
+async function gerarPdfEmpresa(idx) {
+  if (!window.jspdf) { alert('Biblioteca jsPDF não carregou. Verifique a conexão e recarregue.'); return; }
+  const { jsPDF } = window.jspdf;
+  const emp = empresasNotif[idx];
+  const regs = emp.registros.filter(r => r.tipo !== 'excluido' && r.tipo !== 'erro');
+
+  let selicData = null;
+  try { selicData = await getSelicMensal(); } catch(_) {}
+
+  const fmtBRL = v => typeof v === 'number' ? v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+  const fmtPct = v => typeof v === 'number' ? v.toFixed(4) : '—';
+
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const BLUE = [30, 78, 140];
+  const W = doc.internal.pageSize.getWidth();
+
+  // Título
+  doc.setFontSize(10);
+  doc.setTextColor(...BLUE);
+  doc.setFont('helvetica', 'bold');
+  doc.text('V. DEMONSTRATIVO ANALÍTICO DO CRÉDITO TRIBUTÁRIO APURADO', 14, 14);
+
+  // Empresa
+  doc.setFontSize(8);
+  doc.setTextColor(60, 60, 60);
+  doc.setFont('helvetica', 'normal');
+  const cnpjFmt = formatCnpj(onlyDigits(emp.documento)) || emp.documento;
+  doc.text(`Credor: ${emp.nome}   CNPJ: ${cnpjFmt}`, 14, 20);
+
+  // Dados da tabela
+  const head = [['ITEM','CREDOR','CNPJ','DATA LIQUIDAÇÃO','VALOR BRUTO','ALÍQ. %','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA','SELIC %','VL. ATUALIZADO']];
+  let somaVB=0, somaDev=0, somaRet=0, somaDif=0, somaAtual=0;
+
+  const body = regs.map((r, i) => {
+    const aliq = (r.aliquota != null && r.aliquota > 0) ? r.aliquota
+                 : (r.retencaoEsperada && r.valorPago ? (r.retencaoEsperada / r.valorPago * 100) : 0);
+    const devido   = r.retencaoEsperada || 0;
+    const retido   = r.retencaoTxt || 0;
+    const dif      = devido - retido;
+    const selic    = calcSelicAcumulada(r.origem, selicData);
+    const atualizado = dif + dif * selic / 100;
+    somaVB   += r.valorPago || 0;
+    somaDev  += devido;
+    somaRet  += retido;
+    somaDif  += dif;
+    somaAtual+= atualizado;
+    return [
+      i + 1,
+      r.nome,
+      formatCnpj(onlyDigits(r.documento)) || r.documento,
+      r.origem || '',
+      fmtBRL(r.valorPago),
+      fmtPct(aliq),
+      fmtBRL(devido),
+      fmtBRL(retido),
+      fmtBRL(dif),
+      fmtPct(selic),
+      fmtBRL(atualizado),
+    ];
+  });
+
+  // Linha de totais
+  body.push(['TOTAL','','','', fmtBRL(somaVB),'', fmtBRL(somaDev), fmtBRL(somaRet), fmtBRL(somaDif),'', fmtBRL(somaAtual)]);
+
+  doc.autoTable({
+    head,
+    body,
+    startY: 24,
+    styles: { fontSize: 6.5, cellPadding: 1.5, overflow: 'linebreak' },
+    headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', halign: 'center' },
+    columnStyles: {
+      0: { halign: 'center', cellWidth: 8 },
+      1: { cellWidth: 40 },
+      2: { cellWidth: 28 },
+      3: { cellWidth: 22 },
+      4: { halign: 'right', cellWidth: 20 },
+      5: { halign: 'right', cellWidth: 12 },
+      6: { halign: 'right', cellWidth: 20 },
+      7: { halign: 'right', cellWidth: 20 },
+      8: { halign: 'right', cellWidth: 20 },
+      9: { halign: 'right', cellWidth: 14 },
+      10:{ halign: 'right', cellWidth: 22 },
+    },
+    didParseCell(data) {
+      const lastRow = body.length - 1;
+      if (data.row.index === lastRow) {
+        data.cell.styles.fontStyle = 'bold';
+        data.cell.styles.fillColor = [235, 240, 248];
+      }
+      // Diferença negativa em vermelho
+      if (data.column.index === 8 && data.row.index < lastRow) {
+        const val = regs[data.row.index];
+        if (val) {
+          const dif = (val.retencaoEsperada || 0) - (val.retencaoTxt || 0);
+          if (dif < -0.02) data.cell.styles.textColor = [192, 57, 43];
+        }
+      }
+    },
+    margin: { left: 14, right: 14 },
+  });
+
+  // Rodapé com nº de página
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let p = 1; p <= pageCount; p++) {
+    doc.setPage(p);
+    doc.setFontSize(7);
+    doc.setTextColor(150);
+    doc.text(`Página ${p} de ${pageCount}`, W - 14, doc.internal.pageSize.getHeight() - 6, { align: 'right' });
+  }
+
+  const nomeArq = `IRRF_${(emp.nome || 'empresa').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+  doc.save(nomeArq);
 }
 
 // ── XLSX generation ───────────────────────────────────────────────────────────

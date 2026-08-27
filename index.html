@@ -683,7 +683,12 @@ details.advanced summary::-webkit-details-marker { display: none; }
   border: 1px solid rgba(22,131,91,.25);
   font-size: .78rem; padding: 7px 14px; font-weight: 600;
 }
-.btn-docx:hover:not(:disabled), .btn-xlsx:hover:not(:disabled) { filter: brightness(1.06); }
+.btn-pdf {
+  background: var(--red-lt); color: var(--red);
+  border: 1px solid rgba(192,57,43,.25);
+  font-size: .78rem; padding: 7px 14px; font-weight: 600;
+}
+.btn-docx:hover:not(:disabled), .btn-xlsx:hover:not(:disabled), .btn-pdf:hover:not(:disabled) { filter: brightness(1.06); }
 
 /* Estado vazio */
 .nf-empty {
@@ -1002,6 +1007,8 @@ details.advanced summary::-webkit-details-marker { display: none; }
 <script src="jszip.min.js"></script>
 <script src="notif-template.js"></script>
 <script src="cnae-data.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="app.js?v=20260827"></script>
 </body>
 </html>
