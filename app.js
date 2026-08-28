@@ -632,14 +632,19 @@ async function ocrPdf(pdf, onProgress, orientacao) {
 }
 
 btnLimpar.addEventListener('click', () => {
-  // Limpa só o campo de entrada (texto/arquivo/nome do relatório), mantendo os resultados
-  // já acumulados de relatórios anteriores — assim dá pra subir o próximo relatório em seguida.
   txtInput.value = '';
   fileInput.value = '';
   origemInput.value = '';
   errorBox.style.display = 'none';
   pararAnimacaoStatus();
   statusLine.style.display = 'none';
+  ultimosResultados = [];
+  lotes = [];
+  atualizarLotesBox();
+  resultsCard.style.display = 'none';
+  btnNovoLote.style.display = 'none';
+  try { localStorage.removeItem(LS_KEY); } catch(e) {}
+  renderNotifTab();
 });
 
 btnNovoLote.addEventListener('click', () => {
