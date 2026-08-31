@@ -955,17 +955,17 @@ async function processar() {
       }
       lotes.push({ nome: origem, qtd: registros.length });
       atualizarLotesBox();
-      // Só acumula em memória a cada mês — reconstruir a tabela inteira (DOM + localStorage)
-      // a cada lote travava a UI num relatório grande (milhares de linhas acumuladas) e podia
-      // deixar a tela com um frame "rasgado" se o usuário rolasse durante o travamento. A
-      // tabela é renderizada de fato só uma vez, no fim de todos os meses.
-      ultimosResultados = mesclarResultados(ultimosResultados, resultadosNovos);
-      const { comDivergencia, somaDiferenca } = calcularStatsResultados(ultimosResultados);
+      // Mostra a tabela crescendo mês a mês (prévia ao vivo), mas sem regravar o localStorage
+      // a cada lote — isso é um JSON.stringify do relatório inteiro repetido a cada mês, o que
+      // travava a UI num relatório grande e podia deixar a tela com um frame "rasgado" se o
+      // usuário rolasse durante o travamento. O localStorage só é salvo de fato no final.
+      const merged = mesclarResultados(ultimosResultados, resultadosNovos);
+      const { comDivergencia, somaDiferenca } = renderResultados(merged, false);
       setStatus(`"${origem}" processado (${registros.length} registro(s)) — ${comDivergencia > 0 ? `${comDivergencia} divergência(s), ${formatMoeda(Math.abs(somaDiferenca))}` : 'sem divergências'}.`);
       pararAnimacaoStatus();
     }
 
-    renderResultados(ultimosResultados);
+    salvarResultadosLS(ultimosResultados);
     statusLine.classList.add('done');
     btnProcessar.disabled = false;
     btnNovoLote.style.display = 'inline-flex';
@@ -1206,23 +1206,6 @@ document.getElementById('situacaoDestaqueSelect').addEventListener('change', (e)
   ordenacao = { campo: 'situacao', direcao: 1 };
   renderResultados(ultimosResultados, false);
 });
-
-// Calcula só os números de divergência/soma (sem tocar no DOM nem no localStorage) — usado
-// pra mostrar a mensagem de progresso por mês durante uma importação XLSX grande sem precisar
-// reconstruir a tabela inteira a cada mês (isso travava a UI e podia deixar a tela com um
-// frame "rasgado" se o usuário rolasse a página durante o travamento).
-function calcularStatsResultados(resultados) {
-  const TOLERANCIA = 0.02;
-  let comDivergencia = 0;
-  let somaDiferenca = 0;
-  for (const r of resultados) {
-    if (r.tipo === 'excluido' || r.tipo === 'erro' || r.statusApuracao === 'sem-cnae-na-tabela') continue;
-    if (r.tipo === 'pf') { somaDiferenca += r.diferenca || 0; continue; }
-    if (r.diferenca < -TOLERANCIA) comDivergencia++;
-    somaDiferenca += r.diferenca || 0;
-  }
-  return { comDivergencia, somaDiferenca };
-}
 
 function renderResultados(resultados, persistir = true) {
   ultimosResultados = resultados; // mantém a ordem de acumulação intacta (não a ordenada)
