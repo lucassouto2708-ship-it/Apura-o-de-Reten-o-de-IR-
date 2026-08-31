@@ -1443,15 +1443,94 @@ function exportarExcel() {
   XLSX.writeFile(livro, nomeArquivoComData('xlsx'));
 }
 
+// Gera o PDF da apuração total direto com jsPDF/autoTable (dados -> tabela), em vez de
+// window.print(): pedir pro navegador rasterizar a tabela inteira (milhares de linhas, com
+// sticky header e sombras) pra depois converter em PDF trava o "Carregando visualização..."
+// por muito tempo em relatórios grandes. Gerar a partir dos dados é ordens de magnitude mais
+// rápido e escala bem mesmo com milhares de registros.
 function exportarPdf() {
   if (!ultimosResultados.length) return;
-  const tituloOriginal = document.title;
-  document.title = nomeArquivoComData('pdf').replace(/\.pdf$/, '');
-  const wrap = document.querySelector('.wrap');
+  if (!window.jspdf) { alert('Biblioteca jsPDF não carregou. Recarregue a página.'); return; }
+  const { jsPDF } = window.jspdf;
+
+  const TOLERANCIA = 0.02;
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const BLUE = [30, 78, 140];
+  const W = doc.internal.pageSize.getWidth();
+
+  doc.setFontSize(11);
+  doc.setTextColor(...BLUE);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Apuração de Retenção de IRRF', 14, 14);
+  doc.setFontSize(8);
+  doc.setTextColor(90, 90, 90);
+  doc.setFont('helvetica', 'normal');
   const dataHora = new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-  wrap.setAttribute('data-print-date', dataHora);
-  window.print();
-  document.title = tituloOriginal;
+  doc.text(`Gerado em ${dataHora}`, 14, 19);
+
+  const linhasOrdenadas = aplicarOrdenacao(ultimosResultados);
+  const head = [['CREDOR','CNPJ/CPF','SITUAÇÃO','CNAE','%','ORIGEM','VLR PAGO','RET. ESPERADA','RET. RELATÓRIO','DIFERENÇA']];
+  const body = [];
+  const rowMeta = []; // paralelo ao body: guarda info pra colorir a célula de diferença
+
+  for (const r of linhasOrdenadas) {
+    if (r.tipo === 'excluido') {
+      body.push([r.nome, formatCnpj(onlyDigits(r.documento)), 'Fora do escopo: ' + (r.motivoExclusao || ''), '-', '-', r.origem || '', formatMoeda(r.valorPago), '-', formatMoeda(r.retencaoTxt), '-']);
+      rowMeta.push(null);
+    } else if (r.tipo === 'pf') {
+      body.push([r.nome, r.documento, 'Pessoa Física', 'não valida CNAE', '-', r.origem || '', formatMoeda(r.valorPago), formatMoeda(r.retencaoEsperada), formatMoeda(r.retencaoTxt), formatMoeda(0)]);
+      rowMeta.push('ok');
+    } else if (r.tipo === 'erro') {
+      body.push([r.nome, r.documento, 'Erro', r.erro || '', '', r.origem || '', '', '', '', '']);
+      rowMeta.push(null);
+    } else if (r.statusApuracao === 'sem-cnae-na-tabela') {
+      body.push([r.nome, formatCnpj(onlyDigits(r.documento)), r.isSimples ? 'Optante Simples' : 'Não optante', (r.cnaePrincipal ? formatCnae(r.cnaePrincipal) : '-') + ' (fora da tabela)', '-', r.origem || '', formatMoeda(r.valorPago), '-', formatMoeda(r.retencaoTxt), '-']);
+      rowMeta.push(null);
+    } else {
+      const divergente = r.diferenca < -TOLERANCIA;
+      body.push([r.nome, formatCnpj(onlyDigits(r.documento)), r.isSimples ? 'Optante Simples' : 'Não optante', r.cnaePrincipal ? formatCnae(r.cnaePrincipal) : '-', r.aliquota != null ? `${r.aliquota}%` : '-', r.origem || '', formatMoeda(r.valorPago), formatMoeda(r.retencaoEsperada), formatMoeda(r.retencaoTxt), (r.diferenca >= 0 ? '+' : '') + formatMoeda(r.diferenca)]);
+      rowMeta.push(divergente ? 'diff' : 'ok');
+    }
+  }
+
+  doc.autoTable({
+    head,
+    body,
+    startY: 24,
+    styles: { fontSize: 6.5, cellPadding: 1.6, overflow: 'linebreak', valign: 'middle' },
+    headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', halign: 'center', minCellHeight: 7 },
+    columnStyles: {
+      0: { cellWidth: 52 },
+      1: { cellWidth: 26 },
+      2: { cellWidth: 26 },
+      3: { cellWidth: 30 },
+      4: { halign: 'right', cellWidth: 12 },
+      5: { cellWidth: 22 },
+      6: { halign: 'right', cellWidth: 22 },
+      7: { halign: 'right', cellWidth: 24 },
+      8: { halign: 'right', cellWidth: 24 },
+      9: { halign: 'right', cellWidth: 24 },
+    },
+    didParseCell(data) {
+      if (data.section !== 'body') return;
+      const meta = rowMeta[data.row.index];
+      if (data.column.index === 9 && meta) {
+        data.cell.styles.textColor = meta === 'diff' ? [192, 57, 43] : [22, 131, 91];
+        data.cell.styles.fontStyle = 'bold';
+      }
+    },
+    margin: { left: 14, right: 14 },
+  });
+
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let p = 1; p <= pageCount; p++) {
+    doc.setPage(p);
+    doc.setFontSize(7);
+    doc.setTextColor(150);
+    doc.text(`Página ${p} de ${pageCount}`, W - 14, doc.internal.pageSize.getHeight() - 6, { align: 'right' });
+  }
+
+  doc.save(nomeArquivoComData('pdf'));
 }
 
 document.getElementById('btnExportExcel').addEventListener('click', exportarExcel);
