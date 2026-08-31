@@ -433,14 +433,25 @@ button.btn-danger {
 /* ═══════════════════════════════════════════════════
    TABELA PRINCIPAL
 ═══════════════════════════════════════════════════ */
-.table-wrap { overflow-x: auto; padding: 0; }
+/* Sem overflow-x:auto aqui: por regra do CSS, um eixo non-visible força o outro a
+   computar como "auto" também — isso transforma .table-wrap num scroll container e
+   vira a referência de "sticky" dos filhos, em vez da janela. Resultado: o cabeçalho
+   "sticky" não gruda na tela, ele rola junto (bug real encontrado e confirmado). Sem
+   isso, uma tabela muito larga em tela estreita simplesmente rola a página inteira
+   na horizontal (comportamento padrão do navegador), o que preserva o sticky. */
+.table-wrap { padding: 0; }
 
 table {
   width: 100%; border-collapse: collapse;
   font-size: .76rem; table-layout: fixed;
 }
-thead th {
+/* O sticky vai na <tr>, não nos <th> individuais: sticky em table-cell (th/td) tem
+   suporte inconsistente entre navegadores — na <tr> (table-row) funciona de forma
+   confiável e os th filhos herdam a posição correta automaticamente. */
+#resultsHeadRow {
   position: sticky; top: 56px; z-index: 10;
+}
+thead th {
   background: var(--surface2);
   color: var(--muted);
   font-size: .67rem; font-weight: 700;
@@ -451,6 +462,12 @@ thead th {
   white-space: normal;
   text-align: left;
 }
+/* Cantos arredondados do card (antes feitos via overflow:hidden, que quebrava o sticky —
+   ver comentário acima em .table-wrap) recriados diretamente nas células de ponta. */
+#resultsHeadRow th:first-child { border-top-left-radius: 8px; }
+#resultsHeadRow th:last-child { border-top-right-radius: 8px; }
+#resultsBody tr:last-child td:first-child { border-bottom-left-radius: 8px; }
+#resultsBody tr:last-child td:last-child { border-bottom-right-radius: 8px; }
 td {
   padding: 7px 8px;
   border-bottom: 1px solid var(--border);
@@ -896,7 +913,7 @@ details.advanced summary::-webkit-details-marker { display: none; }
       </div>
 
       <!-- Tabela -->
-      <div class="card" style="padding:0; overflow:hidden;">
+      <div class="card" style="padding:0;">
         <div class="table-wrap">
           <table id="resultsTable">
             <colgroup>
