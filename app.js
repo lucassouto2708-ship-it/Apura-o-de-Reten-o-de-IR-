@@ -1788,7 +1788,7 @@ async function fetchEndereco(cnpj) {
 }
 
 // ── PDF generation ────────────────────────────────────────────────────────────
-async function gerarPdfEmpresa(idx) {
+async function gerarPdfEmpresa(idx, opts = {}) {
   if (!window.jspdf) { alert('Biblioteca jsPDF não carregou. Verifique a conexão e recarregue.'); return; }
   const { jsPDF } = window.jspdf;
   const emp = empresasNotif[idx];
@@ -1901,11 +1901,12 @@ async function gerarPdfEmpresa(idx) {
   }
 
   const nomeArq = `IRRF_${(emp.nome || 'empresa').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+  if (opts.returnBlob) return { blob: doc.output('blob'), nomeArq };
   doc.save(nomeArq);
 }
 
 // ── XLSX generation ───────────────────────────────────────────────────────────
-async function gerarXlsxEmpresa(idx) {
+async function gerarXlsxEmpresa(idx, opts = {}) {
   if (!window.XLSX) { alert('Biblioteca XLSX não carregou. Recarregue a página.'); return; }
   const emp = empresasNotif[idx];
   const regs = emp.registros.filter(r => r.tipo !== 'excluido' && r.tipo !== 'erro');
@@ -1961,11 +1962,16 @@ async function gerarXlsxEmpresa(idx) {
   ];
 
   XLSX.utils.book_append_sheet(wb, ws, 'Demonstrativo');
-  XLSX.writeFile(wb, `ANEXO ${sanitizarNomeArquivo(emp.nome)}.xlsx`);
+  const nomeArq = `ANEXO ${sanitizarNomeArquivo(emp.nome)}.xlsx`;
+  if (opts.returnBlob) {
+    const arrBuf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    return { blob: new Blob([arrBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), nomeArq };
+  }
+  XLSX.writeFile(wb, nomeArq);
 }
 
 // ── DOCX generation (JSZip + XML manipulation) ────────────────────────────────
-async function gerarDocxEmpresa(idx) {
+async function gerarDocxEmpresa(idx, opts = {}) {
   if (typeof JSZip === 'undefined') { alert('JSZip não carregou. Recarregue a página.'); return; }
   if (typeof DOCX_TEMPLATE_B64 === 'undefined') { alert('Template DOCX não carregou. Recarregue a página.'); return; }
 
@@ -2100,11 +2106,13 @@ async function gerarDocxEmpresa(idx) {
 
   zip.file('word/document.xml', newXml);
   const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+  const nomeArq = `NOTIFICACAO ${sanitizarNomeArquivo(emp.nome)}.docx`;
+  if (opts.returnBlob) return { blob, nomeArq };
 
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `NOTIFICACAO ${sanitizarNomeArquivo(emp.nome)}.docx`;
+  a.download = nomeArq;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -2344,6 +2352,44 @@ async function gerarTodasXlsx() {
   for (let i = 0; i < empresasNotif.length; i++) {
     await gerarXlsxEmpresa(i);
     await new Promise(r => setTimeout(r, 300));
+  }
+}
+
+// Gera DOCX + XLSX + PDF de todas as empresas de uma vez e empacota tudo num único ZIP,
+// com uma pasta por empresa — assim o usuário baixa um arquivo só, já organizado, em vez de
+// dezenas de downloads soltos na pasta de Downloads.
+async function gerarTudoEmpresas() {
+  if (!empresasNotif.length) { alert('Nenhuma empresa carregada.'); return; }
+  if (typeof JSZip === 'undefined') { alert('JSZip não carregou. Recarregue a página.'); return; }
+
+  _nfShowLoading('Gerando DOCX, XLSX e PDF de todas as empresas...');
+  try {
+    const zipOut = new JSZip();
+    for (let i = 0; i < empresasNotif.length; i++) {
+      const emp = empresasNotif[i];
+      _nfShowLoading(`Gerando arquivos ${i + 1}/${empresasNotif.length}: ${emp.nome}...`);
+      const pasta = zipOut.folder(sanitizarNomeArquivo(emp.nome) || `empresa_${i + 1}`);
+      const docx = await gerarDocxEmpresa(i, { returnBlob: true });
+      const xlsx = await gerarXlsxEmpresa(i, { returnBlob: true });
+      const pdf  = await gerarPdfEmpresa(i, { returnBlob: true });
+      if (docx) pasta.file(docx.nomeArq, docx.blob);
+      if (xlsx) pasta.file(xlsx.nomeArq, xlsx.blob);
+      if (pdf)  pasta.file(pdf.nomeArq, pdf.blob);
+      await new Promise(r => setTimeout(r, 150));
+    }
+    _nfShowLoading('Compactando arquivos...');
+    const zipBlob = await zipOut.generateAsync({ type: 'blob' });
+    const nomeZip = nomeArquivoComData('zip').replace('apuracao_ir_', 'notificacoes_irrf_');
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nomeZip;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } finally {
+    _nfHideLoading();
   }
 }
 
