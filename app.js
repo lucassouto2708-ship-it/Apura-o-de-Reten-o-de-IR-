@@ -671,7 +671,19 @@ function hideError() {
   errorBox.style.display = 'none';
 }
 
+// Cache de consultas de CNPJ — o mesmo fornecedor costuma se repetir dezenas de vezes ao
+// longo de vários meses (pagamentos recorrentes), então sem cache o app refaz a mesma
+// chamada à Receita centenas de vezes na mesma apuração, o que é lento e esbarra em
+// rate limit (429) com frequência. Guarda o resultado (sucesso ou falha) por CNPJ, e dura
+// a sessão inteira da página — não só uma chamada de processar().
+const cnpjCache = new Map();
+
 async function consultaCnpjComRetry(cnpj, tentativas = 3) {
+  if (cnpjCache.has(cnpj)) {
+    const cached = cnpjCache.get(cnpj);
+    if (cached.erro) throw cached.erro;
+    return cached.data;
+  }
   for (let i = 0; i < tentativas; i++) {
     try {
       const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
@@ -680,9 +692,15 @@ async function consultaCnpjComRetry(cnpj, tentativas = 3) {
         continue;
       }
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      return await resp.json();
+      const data = await resp.json();
+      cnpjCache.set(cnpj, { data });
+      return data;
     } catch (e) {
-      if (i === tentativas - 1) throw e;
+      if (i === tentativas - 1) {
+        // Não cacheia falha de rede passageira — só cacheia depois de esgotar tentativas,
+        // pra não travar um CNPJ bom em erro permanente por causa de uma falha momentânea.
+        throw e;
+      }
       await sleep(500 * (i + 1));
     }
   }
@@ -821,6 +839,18 @@ async function processarRegistro(reg) {
   }
 }
 
+// Prevê se processarRegistro(reg) vai de fato bater na API da Receita — usado só pra decidir
+// se vale a pena esperar (sleep) antes do próximo registro. Espelha as saídas antecipadas de
+// processarRegistro; mantém a mesma ordem de checagem.
+function vaiConsultarApi(reg) {
+  if (!reg.isCnpj) return false;
+  const cnpjDigits = onlyDigits(reg.documento);
+  if (!isValidCnpj(cnpjDigits)) return false;
+  if (detectarExclusaoPorNome(reg.nome)) return false;
+  if (/CEMIG/i.test(reg.nome) && reg.despesaDescricao && /COSIP/i.test(reg.despesaDescricao)) return false;
+  return !cnpjCache.has(cnpjDigits);
+}
+
 // Documento normalizado (só dígitos) — chave de agrupamento por credor.
 function chaveDocumento(r) {
   return onlyDigits(r.documento);
@@ -917,8 +947,11 @@ async function processar() {
       for (let i = 0; i < registros.length; i++) {
         const reg = { ...registros[i], origem };
         setStatus(`[${origem}] Processando ${i + 1}/${registros.length}: ${reg.nome}...`);
+        const vaiChamarApi = vaiConsultarApi(reg);
         resultadosNovos.push(await processarRegistro(reg));
-        await sleep(250);
+        // Só espera quando realmente bateu na API — CNPJ repetido (já em cache), PF ou
+        // exclusão por nome não geram requisição nenhuma, então não há rate limit a evitar.
+        if (vaiChamarApi) await sleep(250);
       }
       lotes.push({ nome: origem, qtd: registros.length });
       atualizarLotesBox();
@@ -962,8 +995,9 @@ async function processar() {
   for (let i = 0; i < registros.length; i++) {
     const reg = { ...registros[i], origem };
     setStatus(`Processando ${i + 1} de ${registros.length} (${origem}): ${reg.nome}...`);
+    const vaiChamarApi = vaiConsultarApi(reg);
     resultadosNovos.push(await processarRegistro(reg));
-    await sleep(250); // evita rate limit da API pública
+    if (vaiChamarApi) await sleep(250); // evita rate limit da API pública — só quando chamou de fato
   }
 
   lotes.push({ nome: origem, qtd: registros.length });
@@ -1009,8 +1043,9 @@ async function reprocessarErros() {
     const idx = indices[k];
     const reg = ultimosResultados[idx];
     setStatus(`Reprocessando ${k + 1} de ${indices.length}: ${reg.nome}...`);
+    const vaiChamarApi = vaiConsultarApi(reg);
     ultimosResultados[idx] = await processarRegistro(reg);
-    await sleep(250);
+    if (vaiChamarApi) await sleep(250);
   }
 
   pararAnimacaoStatus();
