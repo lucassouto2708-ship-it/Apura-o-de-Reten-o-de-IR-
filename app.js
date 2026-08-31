@@ -396,9 +396,9 @@ fileInput.addEventListener('change', async () => {
       xlsxRegistros = parseFormatoXLSX(buffer);
       const totalRegs = xlsxRegistros.reduce((s, g) => s + g.registros.length, 0);
       const mesesStr = xlsxRegistros.map((g) => g.nome).join(', ');
-      pararAnimacaoStatus();
       statusLine.classList.add('done');
       setStatus(`Planilha carregada: ${totalRegs} registro(s) em ${xlsxRegistros.length} mês(es) — ${mesesStr}. Clique em Processar.`);
+      pararAnimacaoStatus();
       txtInput.value = ''; // não usa txtInput no caminho XLSX
     } catch (e) {
       pararAnimacaoStatus();
@@ -413,9 +413,9 @@ fileInput.addEventListener('change', async () => {
     try {
       const text = await extrairTextoPdf(file, (msg) => setStatus(msg), orientacao);
       txtInput.value = text;
-      pararAnimacaoStatus();
       statusLine.classList.add('done');
       setStatus('PDF carregado. Confira o texto extraído e clique em Processar.');
+      pararAnimacaoStatus();
     } catch (e) {
       pararAnimacaoStatus();
       showError('Falha ao ler o PDF: ' + (e.message || e));
@@ -957,8 +957,8 @@ async function processar() {
       atualizarLotesBox();
       const merged = mesclarResultados(ultimosResultados, resultadosNovos);
       const { comDivergencia, somaDiferenca } = renderResultados(merged);
-      pararAnimacaoStatus();
       setStatus(`"${origem}" processado (${registros.length} registro(s)) — ${comDivergencia > 0 ? `${comDivergencia} divergência(s), ${formatMoeda(Math.abs(somaDiferenca))}` : 'sem divergências'}.`);
+      pararAnimacaoStatus();
     }
 
     statusLine.classList.add('done');
@@ -1008,7 +1008,6 @@ async function processar() {
   // documento + mesmo valor pago) são fundidos numa linha só, não duplicados.
   const { comDivergencia, somaDiferenca } = renderResultados(mesclarResultados(ultimosResultados, resultadosNovos));
 
-  pararAnimacaoStatus();
   statusLine.classList.add('done');
   // Mensagem final reflete o resultado real da apuração (não só "processo concluído"),
   // já que o que importa aqui é o achado, não o processamento em si.
@@ -1016,6 +1015,7 @@ async function processar() {
     ? `${comDivergencia} divergência(s) encontrada(s) no total acumulado, somando ${formatMoeda(Math.abs(somaDiferenca))}.`
     : 'nenhuma divergência no total acumulado até aqui.';
   setStatus(`"${origem}" processado (${registros.length} registro(s)) — ${resumoAchado}`);
+  pararAnimacaoStatus();
 
   btnProcessar.disabled = false;
   btnNovoLote.style.display = 'inline-flex';
@@ -1048,9 +1048,9 @@ async function reprocessarErros() {
     if (vaiChamarApi) await sleep(250);
   }
 
-  pararAnimacaoStatus();
   statusLine.classList.add('done');
   setStatus(`Reprocessamento concluído: ${indices.length} registro(s) revisado(s).`);
+  pararAnimacaoStatus();
   renderResultados(ultimosResultados); // já reajusta a visibilidade/disabled dos botões de reprocessar
   btnProcessar.disabled = false;
   btnReprocessarErros.disabled = false;
