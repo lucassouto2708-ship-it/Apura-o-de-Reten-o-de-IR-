@@ -941,6 +941,11 @@ async function processar() {
     statusLine.classList.remove('done');
     statusLine.style.display = 'flex';
 
+    let gruposProcessados = 0;
+    const RENDER_A_CADA = 3; // reconstrói a tabela na tela a cada 3 meses, não todo mês —
+    // reduz bastante a travada em relatórios com muitos meses, mantendo uma prévia ao vivo
+    // (só que atualizada com menos frequência) em vez de travar a cada mês ou sumir de vez.
+
     for (const grupo of grupos) {
       const { nome: origem, registros } = grupo;
       const resultadosNovos = [];
@@ -955,14 +960,21 @@ async function processar() {
       }
       lotes.push({ nome: origem, qtd: registros.length });
       atualizarLotesBox();
-      // Mostra a tabela crescendo mês a mês (prévia ao vivo), mas sem regravar o localStorage
-      // a cada lote — isso é um JSON.stringify do relatório inteiro repetido a cada mês, o que
-      // travava a UI num relatório grande e podia deixar a tela com um frame "rasgado" se o
-      // usuário rolasse durante o travamento. O localStorage só é salvo de fato no final.
-      const merged = mesclarResultados(ultimosResultados, resultadosNovos);
-      const { comDivergencia, somaDiferenca } = renderResultados(merged, false);
+      ultimosResultados = mesclarResultados(ultimosResultados, resultadosNovos);
+      gruposProcessados++;
+      const { comDivergencia, somaDiferenca } = calcularStatsResultados(ultimosResultados);
       setStatus(`"${origem}" processado (${registros.length} registro(s)) — ${comDivergencia > 0 ? `${comDivergencia} divergência(s), ${formatMoeda(Math.abs(somaDiferenca))}` : 'sem divergências'}.`);
       pararAnimacaoStatus();
+
+      const ehUltimoGrupo = gruposProcessados === grupos.length;
+      if (gruposProcessados % RENDER_A_CADA === 0 || ehUltimoGrupo) {
+        // localStorage só é gravado de fato no final (fora do loop) — regravar o relatório
+        // inteiro a cada atualização de tela é um custo à toa repetido várias vezes.
+        renderResultados(ultimosResultados, false);
+        // Cede o controle pro navegador respirar entre um render pesado e o próximo mês —
+        // suaviza a sensação de travamento mesmo quando o trabalho total é o mesmo.
+        await sleep(0);
+      }
     }
 
     salvarResultadosLS(ultimosResultados);
@@ -1206,6 +1218,22 @@ document.getElementById('situacaoDestaqueSelect').addEventListener('change', (e)
   ordenacao = { campo: 'situacao', direcao: 1 };
   renderResultados(ultimosResultados, false);
 });
+
+// Calcula só os números de divergência/soma (sem tocar no DOM nem no localStorage) — usado
+// pra atualizar a mensagem de status por mês durante uma importação XLSX grande nos meses em
+// que a tabela na tela não é reconstruída (ver RENDER_A_CADA em processar()).
+function calcularStatsResultados(resultados) {
+  const TOLERANCIA = 0.02;
+  let comDivergencia = 0;
+  let somaDiferenca = 0;
+  for (const r of resultados) {
+    if (r.tipo === 'excluido' || r.tipo === 'erro' || r.statusApuracao === 'sem-cnae-na-tabela') continue;
+    if (r.tipo === 'pf') { somaDiferenca += r.diferenca || 0; continue; }
+    if (r.diferenca < -TOLERANCIA) comDivergencia++;
+    somaDiferenca += r.diferenca || 0;
+  }
+  return { comDivergencia, somaDiferenca };
+}
 
 function renderResultados(resultados, persistir = true) {
   ultimosResultados = resultados; // mantém a ordem de acumulação intacta (não a ordenada)
