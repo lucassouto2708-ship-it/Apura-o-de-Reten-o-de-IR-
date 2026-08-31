@@ -642,6 +642,30 @@ details.advanced summary::-webkit-details-marker { display: none; }
 }
 #nf-session-label { font-size: .78rem; color: var(--muted); flex: 1; }
 
+/* Total geral + ordenação */
+#nf-toolbar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+}
+.nf-total-geral { display: flex; align-items: baseline; gap: 8px; }
+.nf-total-geral .v { font-size: 1.1rem; font-weight: 800; color: var(--red); }
+.nf-total-geral .l { font-size: .74rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.nf-ordenar-label {
+  display: flex; align-items: center; gap: 8px;
+  font-size: .78rem; color: var(--muted); font-weight: 600;
+}
+#nf-ordenar-select {
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface2); color: var(--text);
+  font-family: inherit; font-size: .78rem; font-weight: 600;
+  padding: 6px 10px; cursor: pointer; outline: none;
+}
+#nf-ordenar-select:focus { border-color: var(--blue); }
+
 /* Batch buttons */
 #nf-gerar-todas {
   margin-bottom: 16px;
@@ -998,6 +1022,24 @@ details.advanced summary::-webkit-details-marker { display: none; }
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg>
         Gerar Tudo (ZIP por empresa)
       </button>
+    </div>
+
+    <!-- Total geral + ordenação -->
+    <div id="nf-toolbar" style="display:none;">
+      <div class="nf-total-geral">
+        <span class="v" id="nf-total-geral-valor">R$ 0,00</span>
+        <span class="l">Total de todas as notificações</span>
+      </div>
+      <label class="nf-ordenar-label">
+        Ordenar por:
+        <select id="nf-ordenar-select">
+          <option value="diferenca-desc">Diferença (maior primeiro)</option>
+          <option value="diferenca-asc">Diferença (menor primeiro)</option>
+          <option value="nome-asc">Nome (A-Z)</option>
+          <option value="nome-desc">Nome (Z-A)</option>
+          <option value="bruto-desc">Valor Bruto (maior primeiro)</option>
+        </select>
+      </label>
     </div>
 
     <!-- Cards das empresas -->

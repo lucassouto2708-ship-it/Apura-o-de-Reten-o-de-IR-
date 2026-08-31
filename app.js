@@ -1607,6 +1607,39 @@ tabBtnNotif.addEventListener('click', () => {
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let empresasNotif = [];   // built by renderNotifTab(), indexed by gerarXxx(idx)
+let notifOrdenacao = 'diferenca-desc';
+
+// Calcula os totais de uma empresa (usado tanto pra ordenar quanto pra desenhar o card) —
+// centraliza a conta pra não duplicar a lógica em dois lugares que podem desalinhar.
+function totaisEmpresa(emp) {
+  const totalBruto  = emp.registros.reduce((s, r) => s + (r.valorPago        || 0), 0);
+  const totalDevido = emp.registros.reduce((s, r) => s + (r.retencaoEsperada || 0), 0);
+  const totalRetido = emp.registros.reduce((s, r) => s + (r.retencaoTxt      || 0), 0);
+  return { totalBruto, totalDevido, totalRetido, totalDif: totalDevido - totalRetido };
+}
+
+function ordenarEmpresasNotif(lista, criterio) {
+  const arr = [...lista];
+  const cmpNome = (a, b) => a.nome.localeCompare(b.nome, 'pt-BR');
+  switch (criterio) {
+    case 'diferenca-asc':
+      return arr.sort((a, b) => totaisEmpresa(a).totalDif - totaisEmpresa(b).totalDif);
+    case 'nome-asc':
+      return arr.sort(cmpNome);
+    case 'nome-desc':
+      return arr.sort((a, b) => cmpNome(b, a));
+    case 'bruto-desc':
+      return arr.sort((a, b) => totaisEmpresa(b).totalBruto - totaisEmpresa(a).totalBruto);
+    case 'diferenca-desc':
+    default:
+      return arr.sort((a, b) => totaisEmpresa(b).totalDif - totaisEmpresa(a).totalDif);
+  }
+}
+
+document.getElementById('nf-ordenar-select').addEventListener('change', (e) => {
+  notifOrdenacao = e.target.value;
+  renderNotifTab();
+});
 
 // ── Group results by company (CNPJ/CPF) ──────────────────────────────────────
 // Valor mínimo de diferença (em módulo) pra uma empresa aparecer na aba de Notificações —
@@ -1638,28 +1671,32 @@ function renderNotifTab(fonteLabel) {
   const emptyEl    = document.getElementById('nf-empty');
   const sessionBar = document.getElementById('nf-session-bar');
   const sessionLbl = document.getElementById('nf-session-label');
+  const toolbar    = document.getElementById('nf-toolbar');
 
   if (!ultimosResultados.length) {
     container.innerHTML = '';
     emptyEl.style.display = '';
     sessionBar.style.display = 'none';
+    toolbar.style.display = 'none';
     document.getElementById('nf-gerar-todas').style.display = 'none';
     return;
   }
   emptyEl.style.display = 'none';
   sessionBar.style.display = 'flex';
-  empresasNotif = agruparPorEmpresa(ultimosResultados);
+  toolbar.style.display = 'flex';
+  empresasNotif = ordenarEmpresasNotif(agruparPorEmpresa(ultimosResultados), notifOrdenacao);
   const prefix = fonteLabel ? fonteLabel.trim() + ' — ' : '';
   sessionLbl.textContent = prefix + `${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência`;
   document.getElementById('nf-gerar-todas').style.display = 'flex';
+  document.getElementById('nf-ordenar-select').value = notifOrdenacao;
+
+  const totalGeral = empresasNotif.reduce((s, emp) => s + Math.abs(totaisEmpresa(emp).totalDif), 0);
+  document.getElementById('nf-total-geral-valor').textContent = formatMoeda(totalGeral);
 
   const fmtM = (v) => typeof v === 'number' ? formatMoeda(v) : '—';
 
   container.innerHTML = empresasNotif.map((emp, idx) => {
-    const totalBruto    = emp.registros.reduce((s, r) => s + (r.valorPago         || 0), 0);
-    const totalDevido   = emp.registros.reduce((s, r) => s + (r.retencaoEsperada  || 0), 0);
-    const totalRetido   = emp.registros.reduce((s, r) => s + (r.retencaoTxt       || 0), 0);
-    const totalDif      = totalDevido - totalRetido;
+    const { totalBruto, totalDevido, totalRetido, totalDif } = totaisEmpresa(emp);
     const cnpjFmt = formatCnpj(onlyDigits(emp.documento));
 
     return `<div class="card empresa-card" id="empresa-card-${idx}">
