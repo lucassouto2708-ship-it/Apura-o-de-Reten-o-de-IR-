@@ -1190,7 +1190,7 @@ document.getElementById('resultsHeadRow').addEventListener('click', (e) => {
   if (!th) return;
   const campo = th.dataset.campo;
   ordenacao = ordenacao.campo === campo ? { campo, direcao: ordenacao.direcao * -1 } : { campo, direcao: 1 };
-  renderResultados(ultimosResultados);
+  renderResultados(ultimosResultados, false);
 });
 
 // Dropdown "Destacar situação": escolhe qual categoria vai pra frente de todas as outras.
@@ -1199,12 +1199,15 @@ document.getElementById('resultsHeadRow').addEventListener('click', (e) => {
 document.getElementById('situacaoDestaqueSelect').addEventListener('change', (e) => {
   situacaoDestaque = e.target.value;
   ordenacao = { campo: 'situacao', direcao: 1 };
-  renderResultados(ultimosResultados);
+  renderResultados(ultimosResultados, false);
 });
 
-function renderResultados(resultados) {
+function renderResultados(resultados, persistir = true) {
   ultimosResultados = resultados; // mantém a ordem de acumulação intacta (não a ordenada)
-  salvarResultadosLS(resultados);
+  // Reordenar/destacar chama renderResultados(ultimosResultados) com o MESMO array já salvo —
+  // regravar no localStorage nesse caso é um JSON.stringify inteiro à toa (trava a UI num
+  // relatório grande a cada clique de ordenação, sem nenhum dado novo pra persistir).
+  if (persistir) salvarResultadosLS(resultados);
   const TOLERANCIA = 0.02; // tolerância de arredondamento em R$
 
   let comDivergencia = 0;
