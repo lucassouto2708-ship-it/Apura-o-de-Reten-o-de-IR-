@@ -1609,8 +1609,11 @@ tabBtnNotif.addEventListener('click', () => {
 let empresasNotif = [];   // built by renderNotifTab(), indexed by gerarXxx(idx)
 
 // ── Group results by company (CNPJ/CPF) ──────────────────────────────────────
+// Valor mínimo de diferença (em módulo) pra uma empresa aparecer na aba de Notificações —
+// evita gerar notificação/DOCX pra divergências de centavos que não valem o trâmite.
+const NOTIF_DIFERENCA_MINIMA = 120;
+
 function agruparPorEmpresa(registros) {
-  const TOLERANCIA = 0.02;
   const mapa = new Map();
   for (const r of registros) {
     if (r.tipo === 'excluido' || r.tipo === 'erro') continue;
@@ -1620,11 +1623,11 @@ function agruparPorEmpresa(registros) {
     }
     mapa.get(chave).registros.push(r);
   }
-  // Só empresas com diferença negativa (reteve a menos que o devido)
+  // Só empresas com diferença negativa (reteve a menos que o devido) e acima do mínimo
   return Array.from(mapa.values())
     .filter(emp => {
       const totalDif = emp.registros.reduce((s, r) => s + (r.diferenca || 0), 0);
-      return totalDif < -TOLERANCIA;
+      return totalDif < -NOTIF_DIFERENCA_MINIMA;
     })
     .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 }
