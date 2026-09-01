@@ -1492,17 +1492,89 @@ function exportarPdf() {
   const TOLERANCIA = 0.02;
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const BLUE = [30, 78, 140];
+  const GREEN = [22, 131, 91];
+  const RED = [192, 57, 43];
+  const AMBER = [183, 121, 31];
   const W = doc.internal.pageSize.getWidth();
-
-  doc.setFontSize(11);
-  doc.setTextColor(...BLUE);
-  doc.setFont('helvetica', 'bold');
-  doc.text('Apuração de Retenção de IRRF', 14, 14);
-  doc.setFontSize(8);
-  doc.setTextColor(90, 90, 90);
-  doc.setFont('helvetica', 'normal');
   const dataHora = new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-  doc.text(`Gerado em ${dataHora}`, 14, 19);
+
+  function cabecalho(subtitulo) {
+    doc.setFontSize(11);
+    doc.setTextColor(...BLUE);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Apuração de Retenção de IRRF', 14, 14);
+    doc.setFontSize(8);
+    doc.setTextColor(90, 90, 90);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Gerado em ${dataHora}${subtitulo ? ' — ' + subtitulo : ''}`, 14, 19);
+  }
+
+  // ── Página 1: totalizadores (mesmos números dos cards de resumo na tela) ──────────
+  let comDivergencia = 0, semDivergencia = 0, pessoasFisicas = 0, erros = 0,
+      semCnaeNaTabela = 0, fundidos = 0, excluidos = 0,
+      somaEsperada = 0, somaTxt = 0, somaDiferenca = 0;
+  for (const r of ultimosResultados) {
+    if (r.duplicado) fundidos++;
+    if (r.tipo === 'excluido') { excluidos++; continue; }
+    if (r.tipo === 'pf') { pessoasFisicas++; semDivergencia++; somaEsperada += r.retencaoEsperada; somaTxt += r.retencaoTxt; somaDiferenca += r.diferenca; continue; }
+    if (r.tipo === 'erro') { erros++; continue; }
+    if (r.statusApuracao === 'sem-cnae-na-tabela') { semCnaeNaTabela++; continue; }
+    const divergente = r.diferenca < -TOLERANCIA;
+    if (divergente) comDivergencia++; else semDivergencia++;
+    somaEsperada += r.retencaoEsperada;
+    somaTxt += r.retencaoTxt;
+    somaDiferenca += r.diferenca;
+  }
+
+  cabecalho('Resumo Geral');
+
+  function statCard(x, y, w, h, numero, label, cor) {
+    doc.setDrawColor(220, 220, 220);
+    doc.setFillColor(248, 249, 250);
+    doc.roundedRect(x, y, w, h, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(15);
+    doc.setTextColor(...(cor || [30, 30, 30]));
+    doc.text(String(numero), x + 6, y + 13);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(110, 110, 110);
+    doc.text(label, x + 6, y + 20, { maxWidth: w - 10 });
+  }
+
+  const cardW = 55, cardH = 24, gap = 6;
+  let cx = 14, cy = 28;
+  const statsCount = [
+    [comDivergencia, 'Com Divergência', RED],
+    [semDivergencia, 'Conferem', GREEN],
+    [pessoasFisicas, 'Pessoa Física (não validado)', AMBER],
+    [erros + semCnaeNaTabela, 'Fora do Escopo / Erro', AMBER],
+  ];
+  if (fundidos > 0) statsCount.push([fundidos, 'Fundidos (duplicados entre relatórios)', AMBER]);
+  if (excluidos > 0) statsCount.push([excluidos, 'Fora do Escopo (conselho/banco/consórcio/público/cartório)', [90, 90, 90]]);
+
+  statsCount.forEach(([numero, label, cor], i) => {
+    statCard(cx, cy, cardW, cardH, numero, label, cor);
+    cx += cardW + gap;
+    if (cx + cardW > W - 14) { cx = 14; cy += cardH + gap; }
+  });
+
+  cy += cardH + gap + 6;
+  const cardW2 = 85;
+  const totaisMoeda = [
+    [formatMoeda(somaEsperada), 'Total Esperado', [30, 30, 30]],
+    [formatMoeda(somaTxt), 'Total no Relatório', [30, 30, 30]],
+    [(somaDiferenca >= 0 ? '+' : '') + formatMoeda(somaDiferenca), 'Diferença Total', Math.abs(somaDiferenca) > TOLERANCIA ? RED : GREEN],
+  ];
+  let cx2 = 14;
+  totaisMoeda.forEach(([valor, label, cor]) => {
+    statCard(cx2, cy, cardW2, cardH, valor, label, cor);
+    cx2 += cardW2 + gap;
+  });
+
+  // ── Página 2+: detalhamento completo (tabela por credor) ──────────────────────────
+  doc.addPage();
+  cabecalho('Detalhamento por Credor');
 
   const linhasOrdenadas = aplicarOrdenacao(ultimosResultados);
   const head = [['CREDOR','CNPJ/CPF','SITUAÇÃO','CNAE','%','ORIGEM','VLR PAGO','RET. ESPERADA','RET. RELATÓRIO','DIFERENÇA']];
