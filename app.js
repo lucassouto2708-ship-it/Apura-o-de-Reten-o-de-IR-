@@ -725,11 +725,6 @@ function detectarExclusaoPorNome(nome) {
   if (/\bPREFEITURA\b|MUNIC[IÍ]PIO DE|C[AÂ]MARA MUNICIPAL|\bESTADO DE\b|GOVERNO DO|\bAUTARQUIA\b|\bINSS\b|MINIST[EÉ]RIO/.test(n)) return 'Instituição pública';
   if (/CART[OÓ]RIO|TABELIONATO|OF[IÍ]CIO DE REGISTRO|SERVENTIA EXTRAJUDICIAL|REGISTRO CIVIL/.test(n)) return 'Cartório';
   if (/\bASSOCIA[CÇ][AÃ]O\b|\bFUNDA[CÇ][AÃ]O\b/.test(n)) return 'Associação/Fundação';
-  // Concessionárias estatais de água/energia (COPASA, CEMIG e equivalentes de outros estados):
-  // pagamentos de conta de água/luz — sobretudo restos a pagar — costumam trazer na coluna de
-  // retenção do relatório um valor que não é IRRF (é outra retenção orçamentária específica
-  // desse tipo de lançamento), o que gerava divergência gigante e sem sentido na apuração.
-  if (/\bCOPASA\b|\bCEMIG\b|COMPANHIA DE SANEAMENTO|COMPANHIA ENERG[ÉE]TICA/.test(n)) return 'Concessionária estatal (água/energia)';
   return null;
 }
 
@@ -1233,9 +1228,9 @@ function calcularStatsResultados(resultados) {
   let somaDiferenca = 0;
   for (const r of resultados) {
     if (r.tipo === 'excluido' || r.tipo === 'erro' || r.statusApuracao === 'sem-cnae-na-tabela') continue;
-    if (r.tipo === 'pf') { somaDiferenca += r.diferenca || 0; continue; }
+    if (r.tipo === 'pf') continue;
     if (r.diferenca < -TOLERANCIA) comDivergencia++;
-    somaDiferenca += r.diferenca || 0;
+    somaDiferenca += Math.min(r.diferenca || 0, 0);
   }
   return { comDivergencia, somaDiferenca };
 }
@@ -1333,14 +1328,15 @@ function renderResultados(resultados, persistir = true) {
       </tr>`;
     }
 
-    // Só nos interessa achar retenção A MENOR (reteve menos do que devia). Reter a mais
-    // não é tratado como divergência nem entra na diferença total — não queremos que um
-    // excesso de retenção em um credor "esconda"/compense a falta em outro.
+    // Só nos interessa achar retenção A MENOR (reteve menos do que devia) na visão geral da
+    // apuração. Reter a mais não entra no total geral daqui — só é levado em conta dentro da
+    // própria empresa lá na aba de Notificações (compensando o que ela já deve em outro mês),
+    // nunca "escondendo"/reduzindo o total de outro credor diferente.
     const divergente = r.diferenca < -TOLERANCIA;
     if (divergente) comDivergencia++; else semDivergencia++;
     somaEsperada += r.retencaoEsperada;
     somaTxt += r.retencaoTxt;
-    somaDiferenca += r.diferenca;
+    somaDiferenca += Math.min(r.diferenca, 0);
 
     return `<tr class="${divergente ? 'diff-row' : 'ok-row'}">
       <td>${renderNomeCell(r)}</td>
@@ -1521,14 +1517,14 @@ function exportarPdf() {
   for (const r of ultimosResultados) {
     if (r.duplicado) fundidos++;
     if (r.tipo === 'excluido') { excluidos++; continue; }
-    if (r.tipo === 'pf') { pessoasFisicas++; semDivergencia++; somaEsperada += r.retencaoEsperada; somaTxt += r.retencaoTxt; somaDiferenca += r.diferenca; continue; }
+    if (r.tipo === 'pf') { pessoasFisicas++; semDivergencia++; somaEsperada += r.retencaoEsperada; somaTxt += r.retencaoTxt; continue; }
     if (r.tipo === 'erro') { erros++; continue; }
     if (r.statusApuracao === 'sem-cnae-na-tabela') { semCnaeNaTabela++; continue; }
     const divergente = r.diferenca < -TOLERANCIA;
     if (divergente) comDivergencia++; else semDivergencia++;
     somaEsperada += r.retencaoEsperada;
     somaTxt += r.retencaoTxt;
-    somaDiferenca += r.diferenca;
+    somaDiferenca += Math.min(r.diferenca, 0);
   }
 
   cabecalho('Resumo Geral');
