@@ -725,6 +725,10 @@ function detectarExclusaoPorNome(nome) {
   if (/\bPREFEITURA\b|MUNIC[IÍ]PIO DE|C[AÂ]MARA MUNICIPAL|\bESTADO DE\b|GOVERNO DO|\bAUTARQUIA\b|\bINSS\b|MINIST[EÉ]RIO/.test(n)) return 'Instituição pública';
   if (/CART[OÓ]RIO|TABELIONATO|OF[IÍ]CIO DE REGISTRO|SERVENTIA EXTRAJUDICIAL|REGISTRO CIVIL/.test(n)) return 'Cartório';
   if (/\bASSOCIA[CÇ][AÃ]O\b|\bFUNDA[CÇ][AÃ]O\b/.test(n)) return 'Associação/Fundação';
+  // Concessionárias estatais de água/energia (COPASA, CEMIG e equivalentes de outros estados) —
+  // a coluna de retenção do relatório da prefeitura pra essas contas costuma trazer um valor
+  // que não é IRRF, gerando divergência sem sentido na apuração.
+  if (/\bCOPASA\b|\bCEMIG\b|COMPANHIA DE SANEAMENTO|COMPANHIA ENERG[ÉE]TICA/.test(n)) return 'Concessionária estatal (água/energia)';
   return null;
 }
 
