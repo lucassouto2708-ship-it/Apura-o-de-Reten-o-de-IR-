@@ -478,6 +478,7 @@ function parseFormatoXLSX(arrayBuffer) {
 
     if (!grupos.has(chave)) grupos.set(chave, { nome: nomeMes, registros: [] });
     grupos.get(chave).registros.push({
+      id: proximoLancamentoId++,
       nome: String(row[iNome] || '').trim() || documento,
       documento,
       valorPago: valor,
@@ -755,8 +756,12 @@ function ehEntidadeSemFinsLucrativosPorNatureza(data) {
 }
 
 // Processa um único registro (consulta CNPJ, checa Simples/CNAE, calcula retenção esperada).
-// Usado tanto no processamento normal quanto no "reprocessar só os com erro".
-async function processarRegistro(reg) {
+// Usado tanto no processamento normal quanto no "reprocessar só os com erro". `forcarInclusao`
+// pula as exclusões automáticas por nome/natureza jurídica (conselho, banco, instituição
+// pública, concessionária etc.) — usado quando o usuário marca manualmente um credor
+// "Fora do escopo" como dentro do escopo, porque no caso específico dele a retenção deve
+// ser considerada normalmente.
+async function processarRegistro(reg, forcarInclusao = false) {
   if (!reg.isCnpj) {
     // Pessoa física: não valida CNAE/Simples, apenas repete o valor do relatório
     // no "esperado" para não gerar diferença no somatório final.
@@ -773,20 +778,22 @@ async function processarRegistro(reg) {
     return { ...reg, tipo: 'erro', erro: 'CNPJ inválido' };
   }
 
-  const motivoPorNome = detectarExclusaoPorNome(reg.nome);
-  if (motivoPorNome) {
-    return { ...reg, tipo: 'excluido', motivoExclusao: motivoPorNome };
-  }
-  // CEMIG associada à COSIP (Contribuição para Custeio do Serviço de Iluminação Pública):
-  // o pagamento não é retenção de fornecedor comum, é repasse de contribuição arrecadada.
-  if (/CEMIG/i.test(reg.nome) && reg.despesaDescricao && /COSIP/i.test(reg.despesaDescricao)) {
-    return { ...reg, tipo: 'excluido', motivoExclusao: 'CEMIG / COSIP' };
+  if (!forcarInclusao) {
+    const motivoPorNome = detectarExclusaoPorNome(reg.nome);
+    if (motivoPorNome) {
+      return { ...reg, tipo: 'excluido', motivoExclusao: motivoPorNome };
+    }
+    // CEMIG associada à COSIP (Contribuição para Custeio do Serviço de Iluminação Pública):
+    // o pagamento não é retenção de fornecedor comum, é repasse de contribuição arrecadada.
+    if (/CEMIG/i.test(reg.nome) && reg.despesaDescricao && /COSIP/i.test(reg.despesaDescricao)) {
+      return { ...reg, tipo: 'excluido', motivoExclusao: 'CEMIG / COSIP' };
+    }
   }
 
   try {
     const data = await consultaCnpjComRetry(cnpjDigits);
 
-    if (ehInstituicaoPublicaPorNatureza(data)) {
+    if (!forcarInclusao && ehInstituicaoPublicaPorNatureza(data)) {
       return {
         ...reg,
         nome: data.razao_social || reg.nome,
@@ -794,7 +801,7 @@ async function processarRegistro(reg) {
         motivoExclusao: 'Instituição pública',
       };
     }
-    if (ehEntidadeSemFinsLucrativosPorNatureza(data)) {
+    if (!forcarInclusao && ehEntidadeSemFinsLucrativosPorNatureza(data)) {
       return {
         ...reg,
         nome: data.razao_social || reg.nome,
@@ -1129,6 +1136,24 @@ function ajustarAliquota(id, valorDigitado) {
   renderResultados(ultimosResultados);
 }
 
+// Reclassifica manualmente um credor "Fora do escopo" (excluído automaticamente por nome ou
+// natureza jurídica) como dentro do escopo normal — refaz a consulta de CNPJ/CNAE ignorando
+// as exclusões automáticas, pra esse credor específico entrar nas contas como qualquer outro.
+async function marcarDentroDoEscopo(id) {
+  const idx = ultimosResultados.findIndex((r) => r.id === id);
+  if (idx === -1) return;
+  const reg = { ...ultimosResultados[idx], forcarInclusao: true };
+  setStatus(`Reclassificando ${reg.nome}...`);
+  statusLine.classList.remove('done');
+  statusLine.style.display = 'flex';
+  const atualizado = await processarRegistro(reg, true);
+  ultimosResultados[idx] = atualizado;
+  pararAnimacaoStatus();
+  statusLine.classList.add('done');
+  setStatus(`${atualizado.nome} agora está dentro do escopo da apuração.`);
+  renderResultados(ultimosResultados);
+}
+
 resultsBody.addEventListener('change', (e) => {
   if (e.target.classList.contains('aliquota-input')) {
     ajustarAliquota(Number(e.target.dataset.id), e.target.value);
@@ -1240,6 +1265,10 @@ function calcularStatsResultados(resultados) {
 }
 
 function renderResultados(resultados, persistir = true) {
+  // Garante que todo registro tenha um id (necessário pro botão "marcar dentro do escopo" e
+  // pro campo de alíquota editável) — cobre registros antigos, de antes desses recursos
+  // existirem, que podem estar salvos no localStorage sem essa propriedade.
+  resultados.forEach((r) => { if (r.id === undefined) r.id = proximoLancamentoId++; });
   ultimosResultados = resultados; // mantém a ordem de acumulação intacta (não a ordenada)
   // Reordenar/destacar chama renderResultados(ultimosResultados) com o MESMO array já salvo —
   // regravar no localStorage nesse caso é um JSON.stringify inteiro à toa (trava a UI num
@@ -1279,7 +1308,9 @@ function renderResultados(resultados, persistir = true) {
         <td>${escapeHtml(r.nome)}</td>
         <td>${formatCnpj(onlyDigits(r.documento))}</td>
         <td><span class="badge excluido">Fora do escopo</span></td>
-        <td colspan="2" style="color:var(--muted);">${escapeHtml(r.motivoExclusao)}</td>
+        <td colspan="2" style="color:var(--muted);">${escapeHtml(r.motivoExclusao)}
+          <button class="btn-marcar-escopo" title="Considerar esse credor normalmente na apuração (recalcula CNAE/alíquota)" onclick="marcarDentroDoEscopo(${r.id})">Marcar dentro do escopo</button>
+        </td>
         <td>${renderOrigemCell(r)}</td>
         <td class="num">${formatMoeda(r.valorPago)}</td>
         <td class="num">-</td>
