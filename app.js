@@ -692,11 +692,20 @@ async function consultaCnpjComRetry(cnpj, tentativas = 3) {
         await sleep(800 * (i + 1));
         continue;
       }
+      // 404 é definitivo (CNPJ não existe na Receita) — insistir só desperdiça até 3s de
+      // retry (500+1000+1500ms) num resultado que nunca vai mudar. Falha rápido com uma
+      // mensagem clara em vez do genérico "Failed to fetch" da última tentativa.
+      if (resp.status === 404) {
+        const erro404 = new Error('CNPJ não encontrado na Receita Federal');
+        cnpjCache.set(cnpj, { erro: erro404 });
+        throw erro404;
+      }
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
       cnpjCache.set(cnpj, { data });
       return data;
     } catch (e) {
+      if (e.message === 'CNPJ não encontrado na Receita Federal') throw e;
       if (i === tentativas - 1) {
         // Não cacheia falha de rede passageira — só cacheia depois de esgotar tentativas,
         // pra não travar um CNPJ bom em erro permanente por causa de uma falha momentânea.
@@ -857,8 +866,10 @@ function vaiConsultarApi(reg) {
   if (!reg.isCnpj) return false;
   const cnpjDigits = onlyDigits(reg.documento);
   if (!isValidCnpj(cnpjDigits)) return false;
-  if (detectarExclusaoPorNome(reg.nome)) return false;
-  if (/CEMIG/i.test(reg.nome) && reg.despesaDescricao && /COSIP/i.test(reg.despesaDescricao)) return false;
+  if (!reg.forcarInclusao) {
+    if (detectarExclusaoPorNome(reg.nome)) return false;
+    if (/CEMIG/i.test(reg.nome) && reg.despesaDescricao && /COSIP/i.test(reg.despesaDescricao)) return false;
+  }
   return !cnpjCache.has(cnpjDigits);
 }
 
@@ -1072,7 +1083,9 @@ async function reprocessarErros() {
     const reg = ultimosResultados[idx];
     setStatus(`Reprocessando ${k + 1} de ${indices.length}: ${reg.nome}...`);
     const vaiChamarApi = vaiConsultarApi(reg);
-    ultimosResultados[idx] = await processarRegistro(reg);
+    // Preserva forcarInclusao: se o erro aconteceu justo na reclassificação manual (botão
+    // "Marcar dentro do escopo"), reprocessar não pode voltar a excluir esse credor por nome.
+    ultimosResultados[idx] = await processarRegistro(reg, !!reg.forcarInclusao);
     if (vaiChamarApi) await sleep(250);
   }
 
@@ -1146,12 +1159,23 @@ async function marcarDentroDoEscopo(id) {
   setStatus(`Reclassificando ${reg.nome}...`);
   statusLine.classList.remove('done');
   statusLine.style.display = 'flex';
-  const atualizado = await processarRegistro(reg, true);
-  ultimosResultados[idx] = atualizado;
-  pararAnimacaoStatus();
-  statusLine.classList.add('done');
-  setStatus(`${atualizado.nome} agora está dentro do escopo da apuração.`);
-  renderResultados(ultimosResultados);
+  try {
+    // processarRegistro já captura erro de rede/CNPJ internamente e devolve tipo:'erro'
+    // (não deveria rejeitar a promise) — o try/catch aqui é só uma rede de segurança pra
+    // nunca deixar a barra de status travada em "Reclassificando..." pra sempre.
+    const atualizado = await processarRegistro(reg, true);
+    ultimosResultados[idx] = atualizado;
+    const msgFinal = atualizado.tipo === 'erro'
+      ? `Não foi possível reclassificar ${atualizado.nome}: ${atualizado.erro}. Tente novamente em "Reprocessar erros".`
+      : `${atualizado.nome} agora está dentro do escopo da apuração.`;
+    setStatus(msgFinal);
+  } catch (e) {
+    setStatus(`Falha ao reclassificar ${reg.nome}: ${e.message || e}.`);
+  } finally {
+    pararAnimacaoStatus();
+    statusLine.classList.add('done');
+    renderResultados(ultimosResultados);
+  }
 }
 
 resultsBody.addEventListener('change', (e) => {
