@@ -679,7 +679,7 @@ function hideError() {
 // a sessão inteira da página — não só uma chamada de processar().
 const cnpjCache = new Map();
 
-async function consultaCnpjComRetry(cnpj, tentativas = 3) {
+async function consultaCnpjComRetry(cnpj, tentativas = 5) {
   if (cnpjCache.has(cnpj)) {
     const cached = cnpjCache.get(cnpj);
     if (cached.erro) throw cached.erro;
@@ -687,7 +687,17 @@ async function consultaCnpjComRetry(cnpj, tentativas = 3) {
   }
   for (let i = 0; i < tentativas; i++) {
     try {
-      const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
+      // Timeout de 12s por tentativa — sem isso, uma falha de rede momentânea (DNS lento,
+      // conexão instável) pode deixar o fetch "pendurado" bem mais tempo que o necessário
+      // antes de sequer cair no catch e tentar de novo.
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      let resp;
+      try {
+        resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, { signal: controller.signal });
+      } finally {
+        clearTimeout(timeoutId);
+      }
       if (resp.status === 429) {
         await sleep(800 * (i + 1));
         continue;
@@ -706,12 +716,13 @@ async function consultaCnpjComRetry(cnpj, tentativas = 3) {
       return data;
     } catch (e) {
       if (e.message === 'CNPJ não encontrado na Receita Federal') throw e;
+      const erroNormalizado = e.name === 'AbortError' ? new Error('Tempo de resposta excedido consultando a Receita') : e;
       if (i === tentativas - 1) {
         // Não cacheia falha de rede passageira — só cacheia depois de esgotar tentativas,
         // pra não travar um CNPJ bom em erro permanente por causa de uma falha momentânea.
-        throw e;
+        throw erroNormalizado;
       }
-      await sleep(500 * (i + 1));
+      await sleep(700 * (i + 1));
     }
   }
   throw new Error('Falha ao consultar após múltiplas tentativas');
