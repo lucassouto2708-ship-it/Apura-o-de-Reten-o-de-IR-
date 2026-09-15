@@ -1151,26 +1151,39 @@ function ajustarAliquota(id, valorDigitado) {
 
 // Reclassifica manualmente um credor "Fora do escopo" (excluído automaticamente por nome ou
 // natureza jurídica) como dentro do escopo normal — refaz a consulta de CNPJ/CNAE ignorando
-// as exclusões automáticas, pra esse credor específico entrar nas contas como qualquer outro.
+// as exclusões automáticas. Aplica em TODOS os lançamentos do mesmo CNPJ/CPF ainda marcados
+// como "Fora do escopo" (não só a linha clicada), já que é o mesmo credor em todos os meses.
 async function marcarDentroDoEscopo(id) {
-  const idx = ultimosResultados.findIndex((r) => r.id === id);
-  if (idx === -1) return;
-  const reg = { ...ultimosResultados[idx], forcarInclusao: true };
-  setStatus(`Reclassificando ${reg.nome}...`);
+  const origem = ultimosResultados.find((r) => r.id === id);
+  if (!origem) return;
+  const docAlvo = onlyDigits(origem.documento);
+  const indices = ultimosResultados
+    .map((r, i) => (r.tipo === 'excluido' && onlyDigits(r.documento) === docAlvo ? i : -1))
+    .filter((i) => i !== -1);
+  if (indices.length === 0) return;
+
+  setStatus(`Reclassificando ${origem.nome}...`);
   statusLine.classList.remove('done');
   statusLine.style.display = 'flex';
   try {
-    // processarRegistro já captura erro de rede/CNPJ internamente e devolve tipo:'erro'
-    // (não deveria rejeitar a promise) — o try/catch aqui é só uma rede de segurança pra
-    // nunca deixar a barra de status travada em "Reclassificando..." pra sempre.
-    const atualizado = await processarRegistro(reg, true);
-    ultimosResultados[idx] = atualizado;
-    const msgFinal = atualizado.tipo === 'erro'
-      ? `Não foi possível reclassificar ${atualizado.nome}: ${atualizado.erro}. Tente novamente em "Reprocessar erros".`
-      : `${atualizado.nome} agora está dentro do escopo da apuração.`;
+    let erros = 0;
+    for (let k = 0; k < indices.length; k++) {
+      const idx = indices[k];
+      const reg = { ...ultimosResultados[idx], forcarInclusao: true };
+      setStatus(`Reclassificando ${reg.nome} (${k + 1}/${indices.length})...`);
+      // processarRegistro já captura erro de rede/CNPJ internamente e devolve tipo:'erro'
+      // (não deveria rejeitar a promise) — o try/catch em volta é só uma rede de segurança
+      // pra nunca deixar a barra de status travada em "Reclassificando..." pra sempre.
+      const atualizado = await processarRegistro(reg, true);
+      ultimosResultados[idx] = atualizado;
+      if (atualizado.tipo === 'erro') erros++;
+    }
+    const msgFinal = erros > 0
+      ? `${origem.nome}: ${indices.length - erros}/${indices.length} lançamento(s) reclassificado(s) — ${erros} com erro, tente "Reprocessar erros".`
+      : `${origem.nome}: ${indices.length} lançamento(s) agora dentro do escopo da apuração.`;
     setStatus(msgFinal);
   } catch (e) {
-    setStatus(`Falha ao reclassificar ${reg.nome}: ${e.message || e}.`);
+    setStatus(`Falha ao reclassificar ${origem.nome}: ${e.message || e}.`);
   } finally {
     pararAnimacaoStatus();
     statusLine.classList.add('done');
