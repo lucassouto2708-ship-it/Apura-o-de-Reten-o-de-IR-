@@ -1865,6 +1865,20 @@ function agruparPorEmpresa(registros) {
     .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 }
 
+// Busca os registros de uma empresa direto de ultimosResultados (a mesma fonte que a
+// apuração geral usa), em vez de confiar em emp.registros — que é um snapshot montado por
+// agruparPorEmpresa() no momento em que a aba Notificações foi renderizada, e pode ficar
+// dessincronizado depois de reclassificações/reprocessamentos feitos sem trocar de aba de
+// novo. Garante que o DOCX/XLSX/PDF por empresa sempre reflita o estado atual, igual ao PDF
+// geral da apuração.
+function registrosAtuaisDaEmpresa(emp) {
+  const chaveAlvo = onlyDigits(emp.documento) || emp.nome;
+  return ultimosResultados.filter((r) => {
+    if (r.tipo === 'excluido' || r.tipo === 'erro') return false;
+    return (onlyDigits(r.documento) || r.nome) === chaveAlvo;
+  });
+}
+
 // ── Render notification tab ───────────────────────────────────────────────────
 function renderNotifTab(fonteLabel) {
   const container  = document.getElementById('nf-empresas');
@@ -2040,7 +2054,7 @@ async function gerarPdfEmpresa(idx, opts = {}) {
   if (!window.jspdf) { alert('Biblioteca jsPDF não carregou. Verifique a conexão e recarregue.'); return; }
   const { jsPDF } = window.jspdf;
   const emp = empresasNotif[idx];
-  const regs = emp.registros.filter(r => r.tipo !== 'excluido' && r.tipo !== 'erro');
+  const regs = registrosAtuaisDaEmpresa(emp);
 
   let selicData = null;
   try { selicData = await getSelicMensal(); } catch(_) {}
@@ -2159,7 +2173,7 @@ async function gerarPdfEmpresa(idx, opts = {}) {
 async function gerarXlsxEmpresa(idx, opts = {}) {
   if (!window.XLSX) { alert('Biblioteca XLSX não carregou. Recarregue a página.'); return; }
   const emp = empresasNotif[idx];
-  const regs = emp.registros.filter(r => r.tipo !== 'excluido' && r.tipo !== 'erro');
+  const regs = registrosAtuaisDaEmpresa(emp);
 
   let selicData = null;
   try { selicData = await getSelicMensal(); } catch(_) {}
@@ -2230,7 +2244,7 @@ async function gerarDocxEmpresa(idx, opts = {}) {
   const cfg    = lerConfigNotif();
   const dadosE = lerDadosEmpresa(idx);
 
-  const regs = emp.registros.filter(r => r.tipo !== 'excluido' && r.tipo !== 'erro');
+  const regs = registrosAtuaisDaEmpresa(emp);
 
   // SELIC por mês + endereço (em paralelo)
   let selicData = null, endereco = null;
