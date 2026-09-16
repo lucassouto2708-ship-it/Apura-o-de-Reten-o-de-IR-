@@ -2463,6 +2463,7 @@ async function parsePdfExportado(arrayBuffer) {
     { name: 'situacao',         re: /situa/i },
     { name: 'cnae',             re: /cnae/i },
     { name: 'aliquota',         re: /^%$/ },
+    { name: 'numEmpenho',       re: /empenho/i },
     { name: 'origem',           re: /origem/i },
     { name: 'valorPago',        re: /pago/i },
     { name: 'retencaoEsperada', re: /esperada/i },
@@ -2522,6 +2523,7 @@ async function parsePdfExportado(arrayBuffer) {
       isSimples         : sit.includes('simples'),
       cnaePrincipal     : String(rec.cnae || '').replace(/[^\d]/g, ''),
       aliquota          : parseFloat(String(rec.aliquota || '').replace(',', '.')) || 0,
+      numEmpenho        : (rec.numEmpenho || '').trim(),
       origem            : rec.origem || '',
       valorPago         : parseMoeda(rec.valorPago),
       retencaoEsperada  : parseMoeda(rec.retencaoEsperada),
@@ -2550,6 +2552,7 @@ function carregarXlsxExportado(file) {
       const iSit   = header.findIndex(h => h.includes('situa'));
       const iCnae  = header.findIndex(h => h.includes('cnae'));
       const iAliq  = header.findIndex(h => h.includes('%') || h === 'aplicável' || h.includes('aplicav') || h.includes('aliq'));
+      const iEmp   = header.findIndex(h => h.includes('empenho'));
       const iOrig  = header.findIndex(h => h.includes('origem'));
       const iPago  = header.findIndex(h => h.includes('pago') || h.includes('bruto'));
       const iEsp   = header.findIndex(h => h.includes('esperada'));
@@ -2573,6 +2576,7 @@ function carregarXlsxExportado(file) {
           isSimples : sit.includes('simples'),
           cnaePrincipal : iCnae >= 0 ? String(r[iCnae] || '').replace(/[^\d]/g, '') : '',
           aliquota  : aliq,
+          numEmpenho: iEmp >= 0 ? String(r[iEmp] || '').trim() : '',
           origem    : iOrig >= 0 ? String(r[iOrig] || '') : '',
           valorPago         : ioPago(r, iPago),
           retencaoEsperada  : ioPago(r, iEsp),
