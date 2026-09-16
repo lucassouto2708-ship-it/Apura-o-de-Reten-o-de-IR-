@@ -2061,7 +2061,7 @@ async function gerarPdfEmpresa(idx, opts = {}) {
   doc.text(`Credor: ${emp.nome}   CNPJ: ${cnpjFmt}`, 14, 20);
 
   // Dados da tabela
-  const head = [['#','CREDOR','CNPJ','DATA LIQ.','VALOR BRUTO','ALÍQ.%','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA','SELIC%','VL. ATUALIZADO']];
+  const head = [['#','CREDOR','CNPJ','DATA LIQ.','EMPENHO','VALOR BRUTO','ALÍQ.%','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA','SELIC%','VL. ATUALIZADO']];
   let somaVB=0, somaDev=0, somaRet=0, somaDif=0, somaAtual=0;
 
   const body = regs.map((r, i) => {
@@ -2082,6 +2082,7 @@ async function gerarPdfEmpresa(idx, opts = {}) {
       r.nome,
       formatCnpj(onlyDigits(r.documento)) || r.documento,
       r.origem || '',
+      r.numEmpenho || '-',
       fmtBRL(r.valorPago),
       fmtPct(aliq),
       fmtBRL(devido),
@@ -2093,7 +2094,7 @@ async function gerarPdfEmpresa(idx, opts = {}) {
   });
 
   // Linha de totais
-  body.push(['TOTAL','','','', fmtBRL(somaVB),'', fmtBRL(somaDev), fmtBRL(somaRet), fmtBRL(somaDif),'', fmtBRL(somaAtual)]);
+  body.push(['TOTAL','','','','', fmtBRL(somaVB),'', fmtBRL(somaDev), fmtBRL(somaRet), fmtBRL(somaDif),'', fmtBRL(somaAtual)]);
 
   // Larguras: soma = 267mm para A4 landscape com margens 14mm (269mm disponíveis)
   doc.autoTable({
@@ -2105,16 +2106,17 @@ async function gerarPdfEmpresa(idx, opts = {}) {
     headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', halign: 'center', minCellHeight: 8 },
     columnStyles: {
       0:  { halign: 'center', cellWidth: 9 },
-      1:  { cellWidth: 58 },
-      2:  { cellWidth: 32 },
-      3:  { cellWidth: 22 },
-      4:  { halign: 'right', cellWidth: 24 },
-      5:  { halign: 'right', cellWidth: 12 },
-      6:  { halign: 'right', cellWidth: 24 },
+      1:  { cellWidth: 50 },
+      2:  { cellWidth: 28 },
+      3:  { cellWidth: 18 },
+      4:  { cellWidth: 16 },
+      5:  { halign: 'right', cellWidth: 24 },
+      6:  { halign: 'right', cellWidth: 12 },
       7:  { halign: 'right', cellWidth: 24 },
       8:  { halign: 'right', cellWidth: 24 },
-      9:  { halign: 'right', cellWidth: 14 },
-      10: { halign: 'right', cellWidth: 24 },
+      9:  { halign: 'right', cellWidth: 24 },
+      10: { halign: 'right', cellWidth: 14 },
+      11: { halign: 'right', cellWidth: 24 },
     },
     didParseCell(data) {
       const lastRow = body.length - 1;
@@ -2123,7 +2125,7 @@ async function gerarPdfEmpresa(idx, opts = {}) {
         data.cell.styles.fillColor = [235, 240, 248];
       }
       // Diferença negativa em vermelho
-      if (data.column.index === 8 && data.row.index < lastRow) {
+      if (data.column.index === 9 && data.row.index < lastRow) {
         const val = regs[data.row.index];
         if (val) {
           const dif = (val.retencaoEsperada || 0) - (val.retencaoTxt || 0);
@@ -2157,13 +2159,13 @@ async function gerarXlsxEmpresa(idx, opts = {}) {
   let selicData = null;
   try { selicData = await getSelicMensal(); } catch(_) {}
 
-  // Colunas: A=ITEM B=CREDOR C=CNPJ D=DATA E=VLR_BRUTO F=ALIQ G=IRRF_DEV H=IRRF_RET I=DIF J=SELIC K=ATUALIZADO
-  const NC = 11;
+  // Colunas: A=ITEM B=CREDOR C=CNPJ D=DATA E=EMPENHO F=VLR_BRUTO G=ALIQ H=IRRF_DEV I=IRRF_RET J=DIF K=SELIC L=ATUALIZADO
+  const NC = 12;
   const BRL = '#,##0.00';   // formato monetário 2 casas
   const PCT = '0.0000';     // SELIC %
   const wb = XLSX.utils.book_new();
   const aoaTitulo = [['V. DEMONSTRATIVO ANÁLITICO DO CRÉDITO TRIBUTÁRIO APURADO', ...Array(NC-1).fill('')]];
-  const aoaHeader = [['ITEM','CREDOR','CNPJ DO CREDOR','DATA LIQUIDAÇÃO','VALOR BRUTO','ALIQUOTA APLICAVEL','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA','INDICE COR. SELIC','VALOR ATUALIZADO']];
+  const aoaHeader = [['ITEM','CREDOR','CNPJ DO CREDOR','DATA LIQUIDAÇÃO','EMPENHO','VALOR BRUTO','ALIQUOTA APLICAVEL','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA','INDICE COR. SELIC','VALOR ATUALIZADO']];
 
   const aoaData = regs.map((r, i) => {
     const row  = i + 3;
@@ -2176,31 +2178,32 @@ async function gerarXlsxEmpresa(idx, opts = {}) {
       r.nome,
       cnpjFmt,
       r.origem || '',
+      r.numEmpenho || '',
       { t:'n', v: r.valorPago,      z: BRL },
       { t:'n', v: aliq,             z: '0.0' },
-      { t:'n', f:`E${row}*F${row}/100`, z: BRL },
+      { t:'n', f:`F${row}*G${row}/100`, z: BRL },
       { t:'n', v: r.retencaoTxt,   z: BRL },
-      { t:'n', f:`G${row}-H${row}`, z: BRL },
+      { t:'n', f:`H${row}-I${row}`, z: BRL },
       { t:'n', v: selic,                  z: PCT },
-      { t:'n', f:`I${row}+(I${row}*J${row}/100)`, z: BRL },
+      { t:'n', f:`J${row}+(J${row}*K${row}/100)`, z: BRL },
     ];
   });
 
   const last = regs.length + 2;
   const totalRow = [
-    'TOTAL','','','',
-    { t:'n', f:`SUM(E3:E${last})`, z: BRL }, '',
-    { t:'n', f:`SUM(G3:G${last})`, z: BRL },
+    'TOTAL','','','','',
+    { t:'n', f:`SUM(F3:F${last})`, z: BRL }, '',
     { t:'n', f:`SUM(H3:H${last})`, z: BRL },
-    { t:'n', f:`SUM(I3:I${last})`, z: BRL }, '',
-    { t:'n', f:`SUM(K3:K${last})`, z: BRL },
+    { t:'n', f:`SUM(I3:I${last})`, z: BRL },
+    { t:'n', f:`SUM(J3:J${last})`, z: BRL }, '',
+    { t:'n', f:`SUM(L3:L${last})`, z: BRL },
   ];
 
   const aoa = [...aoaTitulo, ...aoaHeader, ...aoaData, totalRow];
   const ws  = XLSX.utils.aoa_to_sheet(aoa);
   ws['!merges'] = [{ s:{r:0,c:0}, e:{r:0,c:NC-1} }];
   ws['!cols']   = [
-    {wch:4},{wch:38},{wch:22},{wch:16},
+    {wch:4},{wch:38},{wch:22},{wch:16},{wch:14},
     {wch:14},{wch:10},{wch:14},{wch:12},{wch:14},{wch:10},{wch:16},
   ];
 
