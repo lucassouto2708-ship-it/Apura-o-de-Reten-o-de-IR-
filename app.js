@@ -949,6 +949,11 @@ function mesclarResultados(existentes, novos) {
     }
     existente.retencaoTxt = Math.max(existente.retencaoTxt || 0, novo.retencaoTxt || 0);
     existente.duplicado = true;
+    // Preenche numEmpenho se o registro que já estava acumulado não tinha (ex: veio de um
+    // processamento anterior a esse campo existir, ou de um relatório sem essa coluna) — sem
+    // isso, reprocessar o mesmo arquivo sem clicar em "Limpar" antes mantinha o empenho vazio
+    // pra sempre, mesmo com a planilha nova trazendo o valor certo.
+    if (!existente.numEmpenho && novo.numEmpenho) existente.numEmpenho = novo.numEmpenho;
 
     if (existente.tipo === 'pf') {
       existente.retencaoEsperada = existente.retencaoTxt;
