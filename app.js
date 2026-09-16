@@ -444,6 +444,7 @@ function parseFormatoXLSX(arrayBuffer) {
   const iRet  = header.indexOf('vlr_ret_fonte');
   const iMes  = header.indexOf('num_mes_referencia');
   const iAno  = header.indexOf('num_ano_referencia');
+  const iEmpenho = header.indexOf('num_empenho');
 
   if (iDoc === -1 || iNome === -1 || iPago === -1) {
     throw new Error(
@@ -476,6 +477,8 @@ function parseFormatoXLSX(arrayBuffer) {
       ? `${NOMES_MESES[mes - 1]}/${ano}`
       : (ano ? `${ano}` : 'Sem data');
 
+    const numEmpenho = iEmpenho !== -1 ? String(row[iEmpenho] || '').trim() : '';
+
     if (!grupos.has(chave)) grupos.set(chave, { nome: nomeMes, registros: [] });
     grupos.get(chave).registros.push({
       id: proximoLancamentoId++,
@@ -484,6 +487,7 @@ function parseFormatoXLSX(arrayBuffer) {
       valorPago: valor,
       retencaoTxt,
       isCnpj,
+      numEmpenho,
       mesRef: ano * 100 + mes, // ex: 202502 — usado para não fundir lançamentos de meses diferentes
     });
   }
@@ -1474,6 +1478,7 @@ function linhaParaLinhaPlanilha(r) {
       'Situação': 'Fora do escopo: ' + r.motivoExclusao,
       'CNAE Principal': '',
       '% Aplicável': '',
+      'Empenho': r.numEmpenho || '',
       'Origem': r.origem || '',
       'Valor Pago': r.valorPago,
       'Retenção Esperada': '',
@@ -1488,6 +1493,7 @@ function linhaParaLinhaPlanilha(r) {
       'Situação': 'Pessoa Física (não validado)',
       'CNAE Principal': '',
       '% Aplicável': '',
+      'Empenho': r.numEmpenho || '',
       'Origem': r.origem || '',
       'Valor Pago': r.valorPago,
       'Retenção Esperada': r.retencaoEsperada,
@@ -1502,6 +1508,7 @@ function linhaParaLinhaPlanilha(r) {
       'Situação': 'Erro: ' + r.erro,
       'CNAE Principal': '',
       '% Aplicável': '',
+      'Empenho': r.numEmpenho || '',
       'Origem': r.origem || '',
       'Valor Pago': '',
       'Retenção Esperada': '',
@@ -1516,6 +1523,7 @@ function linhaParaLinhaPlanilha(r) {
       'Situação': r.isSimples ? 'Optante Simples' : 'Não optante',
       'CNAE Principal': r.cnaePrincipal ? formatCnae(r.cnaePrincipal) : '',
       '% Aplicável': 'CNAE não consta na tabela',
+      'Empenho': r.numEmpenho || '',
       'Origem': r.origem || '',
       'Valor Pago': r.valorPago,
       'Retenção Esperada': '',
@@ -1529,6 +1537,7 @@ function linhaParaLinhaPlanilha(r) {
     'Situação': r.isSimples ? 'Optante Simples' : 'Não optante',
     'CNAE Principal': r.cnaePrincipal ? formatCnae(r.cnaePrincipal) : '',
     '% Aplicável': r.aliquota,
+    'Empenho': r.numEmpenho || '',
     'Origem': r.origem || '',
     'Valor Pago': r.valorPago,
     'Retenção Esperada': r.retencaoEsperada,
@@ -1554,7 +1563,7 @@ function exportarExcel() {
   const linhas = ultimosResultados.map(linhaParaLinhaPlanilha);
   const planilha = XLSX.utils.json_to_sheet(linhas);
   planilha['!cols'] = [
-    { wch: 38 }, { wch: 20 }, { wch: 18 }, { wch: 14 }, { wch: 12 },
+    { wch: 38 }, { wch: 20 }, { wch: 18 }, { wch: 14 }, { wch: 12 }, { wch: 14 },
     { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 14 },
   ];
 
@@ -1661,26 +1670,27 @@ function exportarPdf() {
   cabecalho('Detalhamento por Credor');
 
   const linhasOrdenadas = aplicarOrdenacao(ultimosResultados);
-  const head = [['CREDOR','CNPJ/CPF','SITUAÇÃO','CNAE','%','ORIGEM','VLR PAGO','RET. ESPERADA','RET. RELATÓRIO','DIFERENÇA']];
+  const head = [['CREDOR','CNPJ/CPF','SITUAÇÃO','CNAE','%','EMPENHO','ORIGEM','VLR PAGO','RET. ESPERADA','RET. RELATÓRIO','DIFERENÇA']];
   const body = [];
   const rowMeta = []; // paralelo ao body: guarda info pra colorir a célula de diferença
 
   for (const r of linhasOrdenadas) {
+    const empenho = r.numEmpenho || '-';
     if (r.tipo === 'excluido') {
-      body.push([r.nome, formatCnpj(onlyDigits(r.documento)), 'Fora do escopo: ' + (r.motivoExclusao || ''), '-', '-', r.origem || '', formatMoeda(r.valorPago), '-', formatMoeda(r.retencaoTxt), '-']);
+      body.push([r.nome, formatCnpj(onlyDigits(r.documento)), 'Fora do escopo: ' + (r.motivoExclusao || ''), '-', '-', empenho, r.origem || '', formatMoeda(r.valorPago), '-', formatMoeda(r.retencaoTxt), '-']);
       rowMeta.push(null);
     } else if (r.tipo === 'pf') {
-      body.push([r.nome, r.documento, 'Pessoa Física', 'não valida CNAE', '-', r.origem || '', formatMoeda(r.valorPago), formatMoeda(r.retencaoEsperada), formatMoeda(r.retencaoTxt), formatMoeda(0)]);
+      body.push([r.nome, r.documento, 'Pessoa Física', 'não valida CNAE', '-', empenho, r.origem || '', formatMoeda(r.valorPago), formatMoeda(r.retencaoEsperada), formatMoeda(r.retencaoTxt), formatMoeda(0)]);
       rowMeta.push('ok');
     } else if (r.tipo === 'erro') {
-      body.push([r.nome, r.documento, 'Erro', r.erro || '', '', r.origem || '', '', '', '', '']);
+      body.push([r.nome, r.documento, 'Erro', r.erro || '', '', empenho, r.origem || '', '', '', '', '']);
       rowMeta.push(null);
     } else if (r.statusApuracao === 'sem-cnae-na-tabela') {
-      body.push([r.nome, formatCnpj(onlyDigits(r.documento)), r.isSimples ? 'Optante Simples' : 'Não optante', (r.cnaePrincipal ? formatCnae(r.cnaePrincipal) : '-') + ' (fora da tabela)', '-', r.origem || '', formatMoeda(r.valorPago), '-', formatMoeda(r.retencaoTxt), '-']);
+      body.push([r.nome, formatCnpj(onlyDigits(r.documento)), r.isSimples ? 'Optante Simples' : 'Não optante', (r.cnaePrincipal ? formatCnae(r.cnaePrincipal) : '-') + ' (fora da tabela)', '-', empenho, r.origem || '', formatMoeda(r.valorPago), '-', formatMoeda(r.retencaoTxt), '-']);
       rowMeta.push(null);
     } else {
       const divergente = r.diferenca < -TOLERANCIA;
-      body.push([r.nome, formatCnpj(onlyDigits(r.documento)), r.isSimples ? 'Optante Simples' : 'Não optante', r.cnaePrincipal ? formatCnae(r.cnaePrincipal) : '-', r.aliquota != null ? `${r.aliquota}%` : '-', r.origem || '', formatMoeda(r.valorPago), formatMoeda(r.retencaoEsperada), formatMoeda(r.retencaoTxt), (r.diferenca >= 0 ? '+' : '') + formatMoeda(r.diferenca)]);
+      body.push([r.nome, formatCnpj(onlyDigits(r.documento)), r.isSimples ? 'Optante Simples' : 'Não optante', r.cnaePrincipal ? formatCnae(r.cnaePrincipal) : '-', r.aliquota != null ? `${r.aliquota}%` : '-', empenho, r.origem || '', formatMoeda(r.valorPago), formatMoeda(r.retencaoEsperada), formatMoeda(r.retencaoTxt), (r.diferenca >= 0 ? '+' : '') + formatMoeda(r.diferenca)]);
       rowMeta.push(divergente ? 'diff' : 'ok');
     }
   }
@@ -1692,21 +1702,22 @@ function exportarPdf() {
     styles: { fontSize: 6.5, cellPadding: 1.6, overflow: 'linebreak', valign: 'middle' },
     headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', halign: 'center', minCellHeight: 7 },
     columnStyles: {
-      0: { cellWidth: 52 },
-      1: { cellWidth: 26 },
-      2: { cellWidth: 26 },
+      0: { cellWidth: 46 },
+      1: { cellWidth: 22 },
+      2: { cellWidth: 24 },
       3: { cellWidth: 30 },
       4: { halign: 'right', cellWidth: 12 },
-      5: { cellWidth: 22 },
-      6: { halign: 'right', cellWidth: 22 },
-      7: { halign: 'right', cellWidth: 24 },
+      5: { cellWidth: 16 },
+      6: { cellWidth: 22 },
+      7: { halign: 'right', cellWidth: 22 },
       8: { halign: 'right', cellWidth: 24 },
       9: { halign: 'right', cellWidth: 24 },
+      10: { halign: 'right', cellWidth: 24 },
     },
     didParseCell(data) {
       if (data.section !== 'body') return;
       const meta = rowMeta[data.row.index];
-      if (data.column.index === 9 && meta) {
+      if (data.column.index === 10 && meta) {
         data.cell.styles.textColor = meta === 'diff' ? [192, 57, 43] : [22, 131, 91];
         data.cell.styles.fontStyle = 'bold';
       }
