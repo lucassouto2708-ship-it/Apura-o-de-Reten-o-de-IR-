@@ -969,6 +969,19 @@ function mesclarResultados(existentes, novos) {
 async function processar() {
   hideError();
 
+  // Descarta qualquer registro com tipo:'pj' que ainda esteja acumulado — esse tipo só
+  // existe em registros reconstruídos a partir de um PDF/XLSX JÁ EXPORTADO pelo próprio app
+  // (botão "Carregar arquivo" da aba Notificações), um caminho frágil que não captura
+  // Empenho e pode até truncar o CNPJ (posicionamento de texto em PDF é impreciso). Se esses
+  // registros ficarem no ar (usuário reprocessou sem clicar em "Limpar" antes), o CNPJ
+  // corrompido não bate mais com o CNPJ correto do reprocessamento novo — o app passa a
+  // tratar como duas empresas diferentes e o usuário pode acabar vendo/gerando em cima do
+  // fantasma antigo. Uma apuração de verdade (esse fluxo) é sempre a fonte confiável; dados
+  // de reimportação não devem sobreviver a ela.
+  if (ultimosResultados.some(r => r.tipo === 'pj')) {
+    ultimosResultados = ultimosResultados.filter(r => r.tipo !== 'pj');
+  }
+
   // Caminho XLSX: processa cada mês como lote separado
   if (xlsxRegistros !== null) {
     const grupos = xlsxRegistros;
