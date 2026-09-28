@@ -2298,28 +2298,21 @@ async function gerarDocxEmpresa(idx, opts = {}) {
 
   // Map: concatenated yellow text (from template) → replacement value
   const repMap = new Map([
-    ['COROACI', cfg.municipio],
-    ['Nº [Inserir: Número/Ano]', 'Nº ' + dadosE.numNotif],
-    ['PORTO SEGURO CIA DE SEGUROS GERAIS', emp.nome],
-    ['61.198.164.0001-60', cnpjFmtDocx || emp.documento],
-    ['[Inserir: Número da Inscrição]', '[Inserir: Número da Inscrição]'],
-    // Endereço — template usa hífen simples (-)
-    ['AV: RIO BRANCO Nº1489, BAIRRO: CAMPOS ELIESOS, SÃO PAULO - SP, CEP 01.205.001', endereco || '[Endereço completo do credor]'],
-    ['AV: RIO BRANCO Nº1489, BAIRRO: CAMPOS ELIESOS, SÃO PAULO – SP, CEP 01.205.001', endereco || '[Endereço completo do credor]'],
-    // R$ values handled in order below
-    ['Coroci – MG', cfg.municipio + ' – MG'],
-    // Date: concatenated from 6 runs
-    [`COROACI/MG, 20 de Agosto de 2026`, `${cfg.municipio}/${cfg.estado}, ${dia} de ${mes} de ${ano}`],
-    // Auditor e matrícula — com e sem ] final (depende de como os runs foram partidos)
-    ['[Inserir: Nome do Auditor / Fiscal Tributário]', cfg.auditor],
-    ['[Inserir: Matrícula]', cfg.matricula],
-    ['[Inserir: Matrícula', cfg.matricula],
+    ['001/2026', dadosE.numNotif],
+    ['Construtora Alvarenga e Cia. Ltda.', emp.nome],
+    ['15.641.914/0001-09', cnpjFmtDocx || emp.documento],
+    ['Ernesto Duarte de Almeida, nº 88, Parque Tinola, São Fidélis/RJ, CEP 28400-000.', endereco || '[Endereço completo do credor]'],
+    // Data: concatenada a partir de 3 runs (cidade/UF + dia/mês/ano + ponto final)
+    ['Pirapetinga/MG, 17 de setembro de 2026.', `${cfg.municipio}/${cfg.estado}, ${dia} de ${mes} de ${ano}.`],
+    ['Sérgio da Silva Netto', cfg.auditor],
+    ['13.725', cfg.matricula],
   ]);
 
-  // R$ values appear in order: principal, atualização, total
+  // R$ values appear in order: principal, atualização, total (2x: seção 3 e item "a" da intimação)
   const rsBRLQueue = [
     'R$' + fmtBRL(valorPrincipal),
     'R$' + fmtBRL(atualizacao),
+    'R$' + fmtBRL(totalConsol),
     'R$' + fmtBRL(totalConsol),
   ];
   let rsBRLIdx = 0;
@@ -2327,13 +2320,6 @@ async function gerarDocxEmpresa(idx, opts = {}) {
   const WNS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
   const parser = new DOMParser();
   const xmlDoc = parser.parseFromString(docXml, 'text/xml');
-
-  // Remove parágrafos de Inscrição Municipal e Processo Administrativo/Contrato
-  const REMOVE_PHRASES = ['Inscrição Municipal', 'Processo Administrativo / Contrato', 'Nota de Empenho'];
-  Array.from(xmlDoc.getElementsByTagNameNS(WNS, 'p')).forEach(para => {
-    const txt = Array.from(para.getElementsByTagNameNS(WNS, 't')).map(t => t.textContent).join('');
-    if (REMOVE_PHRASES.some(p => txt.includes(p))) para.parentNode.removeChild(para);
-  });
 
   // Process all paragraphs
   const paragraphs = Array.from(xmlDoc.getElementsByTagNameNS(WNS, 'p'));
@@ -2369,14 +2355,6 @@ async function gerarDocxEmpresa(idx, opts = {}) {
       i = j;
     }
   }
-
-  // Remove o ']' solto que fica após o campo matrícula (run não-amarelo separado)
-  xmlDoc.getElementsByTagNameNS(WNS, 't') && Array.from(xmlDoc.getElementsByTagNameNS(WNS, 't')).forEach(t => {
-    if (t.textContent === ']') {
-      const run = t.parentNode;
-      if (run && run.parentNode) run.parentNode.removeChild(run);
-    }
-  });
 
   // Replace non-yellow hardcoded fields via string replacement
   const serializer = new XMLSerializer();
