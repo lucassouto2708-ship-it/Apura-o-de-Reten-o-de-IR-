@@ -2046,11 +2046,12 @@ function calcSelicAcumulada(origemStr, selicData) {
 }
 
 // ── BrasilAPI address ─────────────────────────────────────────────────────────
+// Reaproveita o mesmo cache/retry usado no processamento da planilha (consultaCnpjComRetry)
+// em vez de um fetch avulso — o CNPJ do credor quase sempre já foi consultado ali, então
+// isso normalmente resolve na hora, e sem cair na primeira falha de rede/rate-limit (429).
 async function fetchEndereco(cnpj) {
   try {
-    const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
-    if (!resp.ok) return null;
-    const d = await resp.json();
+    const d = await consultaCnpjComRetry(cnpj);
     return [
       d.logradouro,
       d.numero    ? `Nº ${d.numero}`   : null,
