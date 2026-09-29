@@ -2681,24 +2681,26 @@ function gerarRelatorioGeralPdf() {
   doc.text(`${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência`, 14, 21);
 
   let somaBruto = 0, somaDevido = 0, somaRetido = 0, somaDif = 0;
-  const head = [['#','CREDOR','CNPJ','VALOR BRUTO','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA']];
+  const head = [['#','CREDOR','CNPJ','CNAE','VALOR BRUTO','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA']];
   const body = empresasNotif.map((emp, idx) => {
     const { totalBruto, totalDevido, totalRetido, totalDif } = totaisEmpresa(emp);
     somaBruto  += totalBruto;
     somaDevido += totalDevido;
     somaRetido += totalRetido;
     somaDif    += totalDif;
+    const cnaePrincipal = registrosAtuaisDaEmpresa(emp).find(r => r.cnaePrincipal)?.cnaePrincipal;
     return [
       idx + 1,
       emp.nome,
       formatCnpj(onlyDigits(emp.documento)) || emp.documento,
+      cnaePrincipal ? formatCnae(cnaePrincipal) : '-',
       fmtM(totalBruto),
       fmtM(totalDevido),
       fmtM(totalRetido),
       fmtM(Math.abs(totalDif)),
     ];
   });
-  body.push(['TOTAL','','', fmtM(somaBruto), fmtM(somaDevido), fmtM(somaRetido), fmtM(Math.abs(somaDif))]);
+  body.push(['TOTAL','','','', fmtM(somaBruto), fmtM(somaDevido), fmtM(somaRetido), fmtM(Math.abs(somaDif))]);
 
   doc.autoTable({
     head,
@@ -2708,13 +2710,14 @@ function gerarRelatorioGeralPdf() {
     styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak', valign: 'middle' },
     headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', halign: 'center', minCellHeight: 9 },
     columnStyles: {
-      0: { halign: 'center', cellWidth: 10 },
-      1: { cellWidth: 90 },
-      2: { cellWidth: 40 },
-      3: { halign: 'right', cellWidth: 35 },
-      4: { halign: 'right', cellWidth: 35 },
-      5: { halign: 'right', cellWidth: 35 },
-      6: { halign: 'right', cellWidth: 35 },
+      0: { halign: 'center', cellWidth: 9 },
+      1: { cellWidth: 74 },
+      2: { cellWidth: 34 },
+      3: { cellWidth: 22 },
+      4: { halign: 'right', cellWidth: 32 },
+      5: { halign: 'right', cellWidth: 32 },
+      6: { halign: 'right', cellWidth: 32 },
+      7: { halign: 'right', cellWidth: 32 },
     },
     didParseCell(data) {
       const lastRow = body.length - 1;
@@ -2722,7 +2725,7 @@ function gerarRelatorioGeralPdf() {
         data.cell.styles.fontStyle = 'bold';
         data.cell.styles.fillColor = [235, 240, 248];
       }
-      if (data.column.index === 6) data.cell.styles.textColor = [192, 57, 43];
+      if (data.column.index === 7) data.cell.styles.textColor = [192, 57, 43];
     },
     margin: { left: 14, right: 14 },
   });
