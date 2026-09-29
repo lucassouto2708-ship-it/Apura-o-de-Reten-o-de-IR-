@@ -2665,6 +2665,7 @@ function gerarRelatorioGeralPdf() {
 
   const { jsPDF } = window.jspdf;
   const fmtM = (v) => typeof v === 'number' ? formatMoeda(v) : '—';
+  const cfg = lerConfigNotif();
 
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const BLUE = [30, 78, 140];
@@ -2678,7 +2679,7 @@ function gerarRelatorioGeralPdf() {
   doc.setFontSize(8);
   doc.setTextColor(60, 60, 60);
   doc.setFont('helvetica', 'normal');
-  doc.text(`${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência`, 14, 21);
+  doc.text(`Município: ${cfg.municipio}/${cfg.estado}   —   ${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência`, 14, 21);
 
   let somaBruto = 0, somaDevido = 0, somaRetido = 0, somaDif = 0;
   const head = [['#','CREDOR','CNPJ','CNAE','VALOR BRUTO','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA']];
