@@ -2094,7 +2094,7 @@ async function gerarPdfEmpresa(idx, opts = {}) {
   doc.text(`Credor: ${emp.nome}   CNPJ: ${cnpjFmt}`, 14, 20);
 
   // Dados da tabela
-  const head = [['#','CREDOR','CNPJ','DATA LIQ.','EMPENHO','VALOR BRUTO','ALÍQ.%','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA','SELIC%','VL. ATUALIZADO']];
+  const head = [['#','CREDOR','CNPJ','CNAE','DATA LIQ.','EMPENHO','VALOR BRUTO','ALÍQ.%','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA','SELIC%','VL. ATUALIZADO']];
   let somaVB=0, somaDev=0, somaRet=0, somaDif=0, somaAtual=0;
 
   const body = regs.map((r, i) => {
@@ -2114,6 +2114,7 @@ async function gerarPdfEmpresa(idx, opts = {}) {
       i + 1,
       r.nome,
       formatCnpj(onlyDigits(r.documento)) || r.documento,
+      r.cnaePrincipal ? formatCnae(r.cnaePrincipal) : '-',
       r.origem || '',
       r.numEmpenho || '-',
       fmtBRL(r.valorPago),
@@ -2127,9 +2128,9 @@ async function gerarPdfEmpresa(idx, opts = {}) {
   });
 
   // Linha de totais
-  body.push(['TOTAL','','','','', fmtBRL(somaVB),'', fmtBRL(somaDev), fmtBRL(somaRet), fmtBRL(somaDif),'', fmtBRL(somaAtual)]);
+  body.push(['TOTAL','','','','','', fmtBRL(somaVB),'', fmtBRL(somaDev), fmtBRL(somaRet), fmtBRL(somaDif),'', fmtBRL(somaAtual)]);
 
-  // Larguras: soma = 267mm para A4 landscape com margens 14mm (269mm disponíveis)
+  // Larguras: soma = 262mm para A4 landscape com margens 14mm (269mm disponíveis)
   doc.autoTable({
     head,
     body,
@@ -2138,18 +2139,19 @@ async function gerarPdfEmpresa(idx, opts = {}) {
     styles: { fontSize: 6.5, cellPadding: 2, overflow: 'linebreak', valign: 'middle' },
     headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', halign: 'center', minCellHeight: 8 },
     columnStyles: {
-      0:  { halign: 'center', cellWidth: 9 },
-      1:  { cellWidth: 50 },
-      2:  { cellWidth: 28 },
-      3:  { cellWidth: 18 },
+      0:  { halign: 'center', cellWidth: 8 },
+      1:  { cellWidth: 44 },
+      2:  { cellWidth: 26 },
+      3:  { cellWidth: 20 },
       4:  { cellWidth: 16 },
-      5:  { halign: 'right', cellWidth: 24 },
-      6:  { halign: 'right', cellWidth: 12 },
-      7:  { halign: 'right', cellWidth: 24 },
-      8:  { halign: 'right', cellWidth: 24 },
-      9:  { halign: 'right', cellWidth: 24 },
-      10: { halign: 'right', cellWidth: 14 },
-      11: { halign: 'right', cellWidth: 24 },
+      5:  { cellWidth: 14 },
+      6:  { halign: 'right', cellWidth: 22 },
+      7:  { halign: 'right', cellWidth: 11 },
+      8:  { halign: 'right', cellWidth: 22 },
+      9:  { halign: 'right', cellWidth: 22 },
+      10: { halign: 'right', cellWidth: 22 },
+      11: { halign: 'right', cellWidth: 13 },
+      12: { halign: 'right', cellWidth: 22 },
     },
     didParseCell(data) {
       const lastRow = body.length - 1;
@@ -2158,7 +2160,7 @@ async function gerarPdfEmpresa(idx, opts = {}) {
         data.cell.styles.fillColor = [235, 240, 248];
       }
       // Diferença negativa em vermelho
-      if (data.column.index === 9 && data.row.index < lastRow) {
+      if (data.column.index === 10 && data.row.index < lastRow) {
         const val = regs[data.row.index];
         if (val) {
           const dif = (val.retencaoEsperada || 0) - (val.retencaoTxt || 0);
