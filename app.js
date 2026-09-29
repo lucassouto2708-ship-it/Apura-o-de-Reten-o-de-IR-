@@ -2656,6 +2656,88 @@ async function gerarTudoEmpresas() {
   }
 }
 
+// Relatório geral em PDF: uma linha por empresa (não por nota fiscal) com os mesmos totais
+// exibidos nos cards da aba Notificações — pra imprimir/consultar todas as divergências
+// de uma vez, sem precisar abrir o demonstrativo de cada empresa individualmente.
+function gerarRelatorioGeralPdf() {
+  if (!empresasNotif.length) { alert('Nenhuma empresa carregada.'); return; }
+  if (!window.jspdf) { alert('Biblioteca jsPDF não carregou. Verifique a conexão e recarregue.'); return; }
+
+  const { jsPDF } = window.jspdf;
+  const fmtM = (v) => typeof v === 'number' ? formatMoeda(v) : '—';
+
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const BLUE = [30, 78, 140];
+  const W = doc.internal.pageSize.getWidth();
+
+  doc.setFontSize(12);
+  doc.setTextColor(...BLUE);
+  doc.setFont('helvetica', 'bold');
+  doc.text('RELATÓRIO GERAL — NOTIFICAÇÕES DE INCONSISTÊNCIA DE IRRF', 14, 15);
+
+  doc.setFontSize(8);
+  doc.setTextColor(60, 60, 60);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência`, 14, 21);
+
+  let somaBruto = 0, somaDevido = 0, somaRetido = 0, somaDif = 0;
+  const head = [['#','CREDOR','CNPJ','VALOR BRUTO','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA']];
+  const body = empresasNotif.map((emp, idx) => {
+    const { totalBruto, totalDevido, totalRetido, totalDif } = totaisEmpresa(emp);
+    somaBruto  += totalBruto;
+    somaDevido += totalDevido;
+    somaRetido += totalRetido;
+    somaDif    += totalDif;
+    return [
+      idx + 1,
+      emp.nome,
+      formatCnpj(onlyDigits(emp.documento)) || emp.documento,
+      fmtM(totalBruto),
+      fmtM(totalDevido),
+      fmtM(totalRetido),
+      fmtM(Math.abs(totalDif)),
+    ];
+  });
+  body.push(['TOTAL','','', fmtM(somaBruto), fmtM(somaDevido), fmtM(somaRetido), fmtM(Math.abs(somaDif))]);
+
+  doc.autoTable({
+    head,
+    body,
+    startY: 26,
+    tableWidth: 'wrap',
+    styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak', valign: 'middle' },
+    headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', halign: 'center', minCellHeight: 9 },
+    columnStyles: {
+      0: { halign: 'center', cellWidth: 10 },
+      1: { cellWidth: 90 },
+      2: { cellWidth: 40 },
+      3: { halign: 'right', cellWidth: 35 },
+      4: { halign: 'right', cellWidth: 35 },
+      5: { halign: 'right', cellWidth: 35 },
+      6: { halign: 'right', cellWidth: 35 },
+    },
+    didParseCell(data) {
+      const lastRow = body.length - 1;
+      if (data.row.index === lastRow) {
+        data.cell.styles.fontStyle = 'bold';
+        data.cell.styles.fillColor = [235, 240, 248];
+      }
+      if (data.column.index === 6) data.cell.styles.textColor = [192, 57, 43];
+    },
+    margin: { left: 14, right: 14 },
+  });
+
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let p = 1; p <= pageCount; p++) {
+    doc.setPage(p);
+    doc.setFontSize(7);
+    doc.setTextColor(150);
+    doc.text(`Página ${p} de ${pageCount}`, W - 14, doc.internal.pageSize.getHeight() - 6, { align: 'right' });
+  }
+
+  doc.save(nomeArquivoComData('pdf').replace('apuracao_ir_', 'relatorio_geral_notificacoes_'));
+}
+
 // ── Dispatcher: PDF or XLSX ───────────────────────────────────────────────────
 function _nfShowLoading(msg) {
   let ov = document.getElementById('nf-loading-overlay');

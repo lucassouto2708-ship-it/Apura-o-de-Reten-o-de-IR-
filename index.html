@@ -697,8 +697,14 @@ details.advanced summary::-webkit-details-marker { display: none; }
   padding: 9px 18px; font-size: .82rem; font-weight: 700;
   border-radius: 6px; cursor: pointer;
 }
-.btn-batch-docx:hover:not(:disabled), .btn-batch-xlsx:hover:not(:disabled), .btn-batch-all:hover:not(:disabled) { filter: brightness(1.08); }
-.btn-batch-docx svg, .btn-batch-xlsx svg, .btn-batch-all svg { vertical-align: -2px; margin-right: 4px; }
+.btn-batch-report {
+  background: var(--red-lt); color: var(--red);
+  border: 1px solid rgba(192,57,43,.25);
+  padding: 9px 18px; font-size: .82rem; font-weight: 700;
+  border-radius: 6px; cursor: pointer;
+}
+.btn-batch-docx:hover:not(:disabled), .btn-batch-xlsx:hover:not(:disabled), .btn-batch-all:hover:not(:disabled), .btn-batch-report:hover:not(:disabled) { filter: brightness(1.08); }
+.btn-batch-docx svg, .btn-batch-xlsx svg, .btn-batch-all svg, .btn-batch-report svg { vertical-align: -2px; margin-right: 4px; }
 
 /* Cards empresa */
 .empresa-card {
@@ -1029,6 +1035,10 @@ details.advanced summary::-webkit-details-marker { display: none; }
       <button class="btn-batch-all" onclick="gerarTudoEmpresas()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg>
         Gerar Tudo (ZIP por empresa)
+      </button>
+      <button class="btn-batch-report" onclick="gerarRelatorioGeralPdf()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v13a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2z"/><path d="M8 12h8M8 16h8M8 8h2"/></svg>
+        Relatório Geral (PDF)
       </button>
     </div>
 
