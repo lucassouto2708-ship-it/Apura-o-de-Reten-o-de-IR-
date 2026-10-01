@@ -2052,8 +2052,12 @@ function calcSelicAcumulada(origemStr, selicData) {
 async function fetchEndereco(cnpj) {
   try {
     const d = await consultaCnpjComRetry(cnpj);
+    // A BrasilAPI devolve o tipo do logradouro (RUA, AV, TRAVESSA, RODOVIA...) separado do
+    // nome — sem juntar os dois, o endereço sai só com o nome ("DAS FLORES" em vez de
+    // "RUA DAS FLORES").
+    const logradouroCompleto = [d.descricao_tipo_de_logradouro, d.logradouro].filter(Boolean).join(' ');
     return [
-      d.logradouro,
+      logradouroCompleto,
       d.numero    ? `Nº ${d.numero}`   : null,
       d.complemento || null,
       d.bairro    ? `Bairro: ${d.bairro}` : null,
