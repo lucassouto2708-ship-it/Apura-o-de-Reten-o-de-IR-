@@ -1142,7 +1142,47 @@ function atualizarLotesBox() {
   }
   lotesBox.style.display = 'flex';
   lotesBox.innerHTML = `<span style="color:var(--muted); font-size:.8rem;">Relatórios no lote:</span>` +
-    lotes.map((l) => `<span class="lote-chip">${escapeHtml(l.nome)} <b>(${l.qtd})</b></span>`).join('');
+    lotes.map((l, i) => `<span class="lote-chip">${escapeHtml(l.nome)} <b>(${l.qtd})</b>
+      <button type="button" class="lote-chip-remove" title="Remover ${escapeHtml(l.nome)} da apuração" onclick="removerLote(${i})">✕</button>
+    </span>`).join('');
+}
+
+// Remove um relatório/mês específico já somado na apuração atual, sem precisar reprocessar
+// tudo de novo. Filtra direto em cima de ultimosResultados (preservando qualquer edição manual
+// feita depois do processamento — alíquota ajustada, "marcar dentro do escopo" etc.), não
+// recalculando a partir dos dados originais do lote, que já perderiam essas edições.
+// Lançamento que só veio daquele mês -> remove a linha. Lançamento "fundido" (mesmo documento
+// + mesmo valor em mais de um relatório) -> mantém a linha, só tira aquele mês do rótulo de
+// origem, já que o lançamento continua valendo pelos outros meses que o trouxeram.
+function removerLote(idx) {
+  const lote = lotes[idx];
+  if (!lote) return;
+  lotes.splice(idx, 1);
+
+  const novosResultados = ultimosResultados
+    .map((r) => {
+      const partesOrigem = (r.origem || '').split(' + ');
+      if (!partesOrigem.includes(lote.nome)) return r;
+      const restantes = partesOrigem.filter((p) => p !== lote.nome);
+      if (restantes.length === 0) return null;
+      // Só continua "fundido" (badge 🔗) se ainda restar mais de uma origem — com uma só,
+      // voltou a ser um lançamento normal, não uma fusão de relatórios diferentes.
+      return { ...r, origem: restantes.join(' + '), duplicado: restantes.length > 1 };
+    })
+    .filter((r) => r !== null);
+
+  atualizarLotesBox();
+
+  if (novosResultados.length === 0) {
+    // Removeu o último lote restante -> mesmo estado de "Limpar"
+    ultimosResultados = [];
+    resultsCard.style.display = 'none';
+    btnNovoLote.style.display = 'none';
+    try { localStorage.removeItem(LS_KEY); } catch(e) {}
+  } else {
+    renderResultados(novosResultados);
+  }
+  renderNotifTab();
 }
 
 // Mostra o nome oficial (razão social do cartão CNPJ), com um tooltip indicando o nome
