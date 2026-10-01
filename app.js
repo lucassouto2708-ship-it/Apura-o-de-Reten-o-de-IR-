@@ -2051,7 +2051,10 @@ function calcSelicAcumulada(origemStr, selicData) {
 // isso normalmente resolve na hora, e sem cair na primeira falha de rede/rate-limit (429).
 async function fetchEndereco(cnpj) {
   try {
-    const d = await consultaCnpjComRetry(cnpj);
+    // Só 2 tentativas aqui (em vez das 5 padrão): o endereço tem fallback no texto da
+    // notificação, então não vale a pena deixar a geração travada por dezenas de segundos
+    // tentando de novo quando o CNPJ ainda não está em cache e a BrasilAPI está lenta/limitando.
+    const d = await consultaCnpjComRetry(cnpj, 2);
     // A BrasilAPI devolve o tipo do logradouro (RUA, AV, TRAVESSA, RODOVIA...) separado do
     // nome — sem juntar os dois, o endereço sai só com o nome ("DAS FLORES" em vez de
     // "RUA DAS FLORES").
