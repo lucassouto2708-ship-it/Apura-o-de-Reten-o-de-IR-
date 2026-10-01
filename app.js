@@ -2046,15 +2046,11 @@ function calcSelicAcumulada(origemStr, selicData) {
 }
 
 // ── BrasilAPI address ─────────────────────────────────────────────────────────
-// Reaproveita o mesmo cache/retry usado no processamento da planilha (consultaCnpjComRetry)
-// em vez de um fetch avulso — o CNPJ do credor quase sempre já foi consultado ali, então
-// isso normalmente resolve na hora, e sem cair na primeira falha de rede/rate-limit (429).
 async function fetchEndereco(cnpj) {
   try {
-    // Só 2 tentativas aqui (em vez das 5 padrão): o endereço tem fallback no texto da
-    // notificação, então não vale a pena deixar a geração travada por dezenas de segundos
-    // tentando de novo quando o CNPJ ainda não está em cache e a BrasilAPI está lenta/limitando.
-    const d = await consultaCnpjComRetry(cnpj, 2);
+    const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
+    if (!resp.ok) return null;
+    const d = await resp.json();
     // A BrasilAPI devolve o tipo do logradouro (RUA, AV, TRAVESSA, RODOVIA...) separado do
     // nome — sem juntar os dois, o endereço sai só com o nome ("DAS FLORES" em vez de
     // "RUA DAS FLORES").
