@@ -680,6 +680,13 @@ details.advanced summary::-webkit-details-marker { display: none; }
   padding: 6px 10px; cursor: pointer; outline: none;
 }
 #nf-ordenar-select:focus { border-color: var(--blue); }
+#nf-filtro-valor-input {
+  width: 120px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface2); color: var(--text);
+  font-family: inherit; font-size: .78rem; font-weight: 600;
+  padding: 6px 10px; outline: none;
+}
+#nf-filtro-valor-input:focus { border-color: var(--blue); }
 
 /* Batch buttons */
 #nf-gerar-todas {
@@ -1063,8 +1070,14 @@ details.advanced summary::-webkit-details-marker { display: none; }
           <option value="nome-asc">Nome (A-Z)</option>
           <option value="nome-desc">Nome (Z-A)</option>
           <option value="bruto-desc">Valor Bruto (maior primeiro)</option>
+          <option value="__filtro__">Notificar só a partir de um valor…</option>
         </select>
       </label>
+      <div id="nf-filtro-valor" class="nf-ordenar-label" style="display:none;">
+        Diferença a partir de R$
+        <input type="number" id="nf-filtro-valor-input" min="0" step="0.01" placeholder="0,00">
+        <button type="button" class="secondary" id="nf-filtro-valor-limpar" style="font-size:.74rem; padding:6px 10px;">Remover filtro</button>
+      </div>
     </div>
 
     <!-- Cards das empresas -->

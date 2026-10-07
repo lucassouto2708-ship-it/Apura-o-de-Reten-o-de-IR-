@@ -1889,8 +1889,30 @@ function ordenarEmpresasNotif(lista, criterio) {
   }
 }
 
+// Valor mínimo de diferença escolhido pelo usuário: empresas abaixo dele saem de
+// empresasNotif, então somem dos cards e de todas as gerações em lote.
+let notifValorMinimo = 0;
+
 document.getElementById('nf-ordenar-select').addEventListener('change', (e) => {
+  if (e.target.value === '__filtro__') {
+    e.target.value = notifOrdenacao;
+    document.getElementById('nf-filtro-valor').style.display = 'flex';
+    document.getElementById('nf-filtro-valor-input').focus();
+    return;
+  }
   notifOrdenacao = e.target.value;
+  renderNotifTab();
+});
+
+document.getElementById('nf-filtro-valor-input').addEventListener('input', (e) => {
+  notifValorMinimo = parseFloat(e.target.value) || 0;
+  renderNotifTab();
+});
+
+document.getElementById('nf-filtro-valor-limpar').addEventListener('click', () => {
+  notifValorMinimo = 0;
+  document.getElementById('nf-filtro-valor-input').value = '';
+  document.getElementById('nf-filtro-valor').style.display = 'none';
   renderNotifTab();
 });
 
@@ -1951,9 +1973,13 @@ function renderNotifTab(fonteLabel) {
   emptyEl.style.display = 'none';
   sessionBar.style.display = 'flex';
   toolbar.style.display = 'flex';
-  empresasNotif = ordenarEmpresasNotif(agruparPorEmpresa(ultimosResultados), notifOrdenacao);
+  const todasEmpresas = ordenarEmpresasNotif(agruparPorEmpresa(ultimosResultados), notifOrdenacao);
+  empresasNotif = todasEmpresas.filter(emp => Math.abs(totaisEmpresa(emp).totalDif) >= notifValorMinimo);
   const prefix = fonteLabel ? fonteLabel.trim() + ' — ' : '';
-  sessionLbl.textContent = prefix + `${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência`;
+  const sufixoFiltro = notifValorMinimo > 0
+    ? ` (de ${todasEmpresas.length}, filtrando diferença a partir de ${formatMoeda(notifValorMinimo)})`
+    : '';
+  sessionLbl.textContent = prefix + `${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência` + sufixoFiltro;
   document.getElementById('nf-gerar-todas').style.display = 'flex';
   document.getElementById('nf-ordenar-select').value = notifOrdenacao;
 
@@ -2722,7 +2748,8 @@ function gerarRelatorioGeralPdf() {
   doc.setFontSize(8);
   doc.setTextColor(60, 60, 60);
   doc.setFont('helvetica', 'normal');
-  doc.text(`Município: ${cfg.municipio}/${cfg.estado}   —   ${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência`, 14, 21);
+  const filtroTxt = notifValorMinimo > 0 ? ` a partir de ${formatMoeda(notifValorMinimo)}` : '';
+  doc.text(`Município: ${cfg.municipio}/${cfg.estado}   —   ${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência${filtroTxt}`, 14, 21);
 
   let somaBruto = 0, somaDevido = 0, somaRetido = 0, somaDif = 0;
   const head = [['#','CREDOR','CNPJ','CNAE','VALOR BRUTO','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA']];
