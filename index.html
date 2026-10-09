@@ -604,9 +604,7 @@ th.sortable.sort-ativo .arrow { opacity: 1; color: var(--blue); }
 }
 .lote-chip-remove:hover { background: var(--red-lt); color: var(--red); }
 
-/* Animação de entrada só nas primeiras linhas (as que aparecem na tela): animar todas as
-   milhares de linhas de uma apuração grande deixava cada redesenho da tabela 2-3x mais lento. */
-tbody tr:nth-child(-n+40) { animation: fadeInUp .2s ease both; }
+tbody tr { animation: fadeInUp .2s ease both; }
 
 /* ═══════════════════════════════════════════════════
    ADVANCED DETAILS
@@ -1119,6 +1117,6 @@ details.advanced summary::-webkit-details-marker { display: none; }
 <script src="cnae-data.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
-<script src="app.js?v=20261009c"></script>
+<script src="app.js?v=20260917a"></script>
 </body>
 </html>

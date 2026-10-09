@@ -91,13 +91,9 @@ function encontrarValoresMonetarios(texto) {
   return { valores: padrao || alternativo || [], parser: parseMoedaBR };
 }
 
-// Formatador criado uma vez só — toLocaleString com opções recria o formatador a cada
-// chamada (~30x mais lento), e a tabela chama isso milhares de vezes por redesenho.
-const FORMATADOR_MOEDA = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
-
 function formatMoeda(num) {
   if (isNaN(num)) return '-';
-  return FORMATADOR_MOEDA.format(num);
+  return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
 function isValidCnpj(cnpj) {
@@ -687,195 +683,57 @@ function hideError() {
 // a sessão inteira da página — não só uma chamada de processar().
 const cnpjCache = new Map();
 
-// Cache de cartões CNPJ salvo no navegador (localStorage) por alguns dias — sem isso, cada
-// vez que a página é recarregada todos os fornecedores são consultados de novo na BrasilAPI,
-// que é de longe a parte mais lenta da apuração. Guarda só os campos que o app usa.
-const LS_CNPJ_KEY = 'apuracao_ir_cnpj_cache';
-const CNPJ_CACHE_VALIDADE_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
-const CNPJ_CAMPOS_USADOS = ['razao_social', 'opcao_pelo_simples', 'cnae_fiscal', 'cnae_fiscal_descricao',
-  'codigo_natureza_juridica', 'descricao_tipo_de_logradouro', 'logradouro', 'numero', 'complemento',
-  'bairro', 'municipio', 'uf', 'cep'];
-
-(function carregarCnpjCacheLS() {
-  try {
-    const salvo = JSON.parse(localStorage.getItem(LS_CNPJ_KEY) || '{}');
-    const agora = Date.now();
-    for (const [cnpj, item] of Object.entries(salvo)) {
-      if (item && item.data && agora - item.ts < CNPJ_CACHE_VALIDADE_MS) {
-        cnpjCache.set(cnpj, { data: item.data, ts: item.ts });
-      }
-    }
-  } catch (_) {}
-})();
-
-function salvarCnpjCacheLS() {
-  try {
-    const agora = Date.now();
-    const saida = {};
-    for (const [cnpj, item] of cnpjCache) {
-      if (!item.data) continue; // erro (ex: 404) não é persistido
-      if (!item.ts) item.ts = agora;
-      if (agora - item.ts >= CNPJ_CACHE_VALIDADE_MS) continue;
-      const enxuto = {};
-      for (const campo of CNPJ_CAMPOS_USADOS) {
-        if (item.data[campo] !== undefined) enxuto[campo] = item.data[campo];
-      }
-      saida[cnpj] = { ts: item.ts, data: enxuto };
-    }
-    localStorage.setItem(LS_CNPJ_KEY, JSON.stringify(saida));
-  } catch (_) {}
-}
-
-// Falhas de rede/timeout da rodada atual (processar, reprocessar erros, marcar dentro do
-// escopo). Não entram no cnpjCache permanente (pra "Reprocessar erros" poder tentar de novo
-// depois), mas dentro da mesma rodada evitam repetir todas as tentativas a cada linha do
-// mesmo CNPJ — um fornecedor que aparece em 20 lançamentos custaria 20x o tempo de falha.
-// Zerado no início de cada rodada por limparFalhasCnpjRodada().
-const cnpjFalhasRodada = new Map();
-
-function limparFalhasCnpjRodada() {
-  cnpjFalhasRodada.clear();
-}
-
-// Uma única tentativa de consulta na BrasilAPI, com timeout de 12s (sem isso, uma falha de
-// rede momentânea pode deixar o fetch "pendurado" bem mais tempo que o necessário). 404 é
-// definitivo (CNPJ não existe na Receita) e já fica no cnpjCache; o resto lança o erro com
-// `limiteApi = true` quando é 429, pra quem chamou decidir se espera e tenta de novo.
-const MSG_CNPJ_NAO_ENCONTRADO = 'CNPJ não encontrado na Receita Federal';
-
-async function buscarCnpjNaApi(cnpj) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 12000);
-  let resp;
-  try {
-    resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, { signal: controller.signal });
-  } catch (e) {
-    throw e.name === 'AbortError' ? new Error('Tempo de resposta excedido consultando a Receita') : e;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-  if (resp.status === 404) {
-    const erro404 = new Error(MSG_CNPJ_NAO_ENCONTRADO);
-    cnpjCache.set(cnpj, { erro: erro404 });
-    throw erro404;
-  }
-  if (resp.status === 429) {
-    const erro429 = new Error('HTTP 429');
-    erro429.limiteApi = true;
-    throw erro429;
-  }
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  const data = await resp.json();
-  cnpjCache.set(cnpj, { data, ts: Date.now() });
-  return data;
-}
-
 async function consultaCnpjComRetry(cnpj, tentativas = 5) {
   if (cnpjCache.has(cnpj)) {
     const cached = cnpjCache.get(cnpj);
     if (cached.erro) throw cached.erro;
     return cached.data;
   }
-  if (cnpjFalhasRodada.has(cnpj)) throw cnpjFalhasRodada.get(cnpj);
   for (let i = 0; i < tentativas; i++) {
     try {
-      return await buscarCnpjNaApi(cnpj);
-    } catch (e) {
-      if (e.message === MSG_CNPJ_NAO_ENCONTRADO) throw e;
-      if (i === tentativas - 1) {
-        // Não cacheia falha de rede passageira de forma permanente — só pra rodada atual,
-        // depois de esgotar as tentativas ("Reprocessar erros" tenta de novo).
-        cnpjFalhasRodada.set(cnpj, e);
-        throw e;
+      // Timeout de 12s por tentativa — sem isso, uma falha de rede momentânea (DNS lento,
+      // conexão instável) pode deixar o fetch "pendurado" bem mais tempo que o necessário
+      // antes de sequer cair no catch e tentar de novo.
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      let resp;
+      try {
+        resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, { signal: controller.signal });
+      } finally {
+        clearTimeout(timeoutId);
       }
-      await sleep((e.limiteApi ? 800 : 700) * (i + 1));
+      if (resp.status === 429) {
+        await sleep(800 * (i + 1));
+        continue;
+      }
+      // 404 é definitivo (CNPJ não existe na Receita) — insistir só desperdiça até 3s de
+      // retry (500+1000+1500ms) num resultado que nunca vai mudar. Falha rápido com uma
+      // mensagem clara em vez do genérico "Failed to fetch" da última tentativa.
+      if (resp.status === 404) {
+        const erro404 = new Error('CNPJ não encontrado na Receita Federal');
+        cnpjCache.set(cnpj, { erro: erro404 });
+        throw erro404;
+      }
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      cnpjCache.set(cnpj, { data });
+      return data;
+    } catch (e) {
+      if (e.message === 'CNPJ não encontrado na Receita Federal') throw e;
+      const erroNormalizado = e.name === 'AbortError' ? new Error('Tempo de resposta excedido consultando a Receita') : e;
+      if (i === tentativas - 1) {
+        // Não cacheia falha de rede passageira — só cacheia depois de esgotar tentativas,
+        // pra não travar um CNPJ bom em erro permanente por causa de uma falha momentânea.
+        throw erroNormalizado;
+      }
+      await sleep(700 * (i + 1));
     }
   }
-  const erroFinal = new Error('Falha ao consultar após múltiplas tentativas');
-  cnpjFalhasRodada.set(cnpj, erroFinal);
-  throw erroFinal;
+  throw new Error('Falha ao consultar após múltiplas tentativas');
 }
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
-}
-
-// Consulta antecipada e em paralelo dos CNPJs únicos de um lote, antes do laço que processa
-// linha a linha. O resultado vai pro mesmo cache (cnpjCache / cnpjFalhasRodada) que
-// processarRegistro já usa, então a regra de apuração continua exatamente a mesma — só deixa
-// de esperar um CNPJ terminar pra começar o próximo.
-// Consulta antecipada dos CNPJs únicos de um lote, antes do laço que processa linha a linha.
-// O resultado vai pro mesmo cache (cnpjCache / cnpjFalhasRodada) que processarRegistro já
-// usa, então a regra de apuração continua exatamente a mesma.
-//
-// Ritmo adaptativo: começa com algumas consultas ao mesmo tempo, mas ao PRIMEIRO sinal de
-// limite/instabilidade da BrasilAPI (429, "Failed to fetch" — o bloqueio por excesso de
-// requisições costuma chegar sem cabeçalho CORS e aparece assim —, timeout, 5xx) passa a
-// consultar um por vez e dobra o intervalo entre consultas (até 3s); a cada sucesso o
-// intervalo volta a diminuir aos poucos. O CNPJ que falhou volta pro fim da fila e só vira
-// erro depois de CNPJ_TENTATIVAS_MAX falhas.
-const CNPJ_CONSULTAS_SIMULTANEAS = 3;
-const CNPJ_TENTATIVAS_MAX = 8;
-const CNPJ_INTERVALO_MIN_MS = 250;
-const CNPJ_INTERVALO_MAX_MS = 3000;
-
-async function preCarregarCnpjs(registros) {
-  const unicos = [...new Set(registros.filter(vaiConsultarApi).map((r) => onlyDigits(r.documento)))];
-  if (unicos.length === 0) return;
-
-  const fila = unicos.slice();
-  const falhasPorCnpj = new Map();
-  let simultaneas = Math.min(CNPJ_CONSULTAS_SIMULTANEAS, unicos.length);
-  let intervalo = CNPJ_INTERVALO_MIN_MS;
-  let pausaAte = 0;
-  let emAndamento = 0;
-  let concluidos = 0;
-  setStatus(`Consultando CNPJs na Receita: 0/${unicos.length}...`);
-
-  async function trabalhador(id) {
-    while (true) {
-      if (id >= simultaneas) return; // modo um-por-vez: só o trabalhador 0 continua
-      if (fila.length === 0) {
-        // O trabalhador 0 espera os que ainda estão em andamento, que podem devolver um
-        // CNPJ pra fila se falharem.
-        if (id === 0 && emAndamento > 0) { await sleep(100); continue; }
-        return;
-      }
-      const espera = pausaAte - Date.now();
-      if (espera > 0) { await sleep(espera); continue; }
-
-      const cnpj = fila.shift();
-      emAndamento++;
-      try {
-        await buscarCnpjNaApi(cnpj);
-        concluidos++;
-        intervalo = Math.max(CNPJ_INTERVALO_MIN_MS, Math.round(intervalo * 0.9));
-      } catch (e) {
-        if (e.message === MSG_CNPJ_NAO_ENCONTRADO) {
-          concluidos++; // definitivo, já está no cnpjCache
-        } else {
-          const n = (falhasPorCnpj.get(cnpj) || 0) + 1;
-          falhasPorCnpj.set(cnpj, n);
-          simultaneas = 1;
-          intervalo = Math.min(CNPJ_INTERVALO_MAX_MS, intervalo * 2);
-          pausaAte = Math.max(pausaAte, Date.now() + intervalo);
-          if (n < CNPJ_TENTATIVAS_MAX) {
-            fila.push(cnpj);
-          } else {
-            cnpjFalhasRodada.set(cnpj, e); // vira linha de erro ("Reprocessar erros" tenta de novo)
-            concluidos++;
-          }
-        }
-      } finally {
-        emAndamento--;
-      }
-      setStatus(`Consultando CNPJs na Receita: ${concluidos}/${unicos.length}...`);
-      await sleep(intervalo);
-    }
-  }
-
-  await Promise.all(Array.from({ length: simultaneas }, (_, id) => trabalhador(id)));
-  salvarCnpjCacheLS();
 }
 
 // Categorias que o usuário pediu pra sempre desconsiderar da apuração (não são pessoas
@@ -1027,7 +885,7 @@ function vaiConsultarApi(reg) {
     if (detectarExclusaoPorNome(reg.nome)) return false;
     if (/CEMIG/i.test(reg.nome) && reg.despesaDescricao && /COSIP/i.test(reg.despesaDescricao)) return false;
   }
-  return !cnpjCache.has(cnpjDigits) && !cnpjFalhasRodada.has(cnpjDigits);
+  return !cnpjCache.has(cnpjDigits);
 }
 
 // Documento normalizado (só dígitos) — chave de agrupamento por credor.
@@ -1110,7 +968,6 @@ function mesclarResultados(existentes, novos) {
 
 async function processar() {
   hideError();
-  limparFalhasCnpjRodada();
 
   // Descarta qualquer registro com tipo:'pj' que ainda esteja acumulado — esse tipo só
   // existe em registros reconstruídos a partir de um PDF/XLSX JÁ EXPORTADO pelo próprio app
@@ -1139,9 +996,10 @@ async function processar() {
     statusLine.classList.remove('done');
     statusLine.style.display = 'flex';
 
-    await preCarregarCnpjs(grupos.flatMap((g) => g.registros));
-
     let gruposProcessados = 0;
+    const RENDER_A_CADA = 3; // reconstrói a tabela na tela a cada 3 meses, não todo mês —
+    // reduz bastante a travada em relatórios com muitos meses, mantendo uma prévia ao vivo
+    // (só que atualizada com menos frequência) em vez de travar a cada mês ou sumir de vez.
 
     for (const grupo of grupos) {
       const { nome: origem, registros } = grupo;
@@ -1163,11 +1021,13 @@ async function processar() {
       setStatus(`"${origem}" processado (${registros.length} registro(s)) — ${comDivergencia > 0 ? `${comDivergencia} divergência(s), ${formatMoeda(Math.abs(somaDiferenca))}` : 'sem divergências'}.`);
       pararAnimacaoStatus();
 
-      // Com os CNPJs já pré-carregados (preCarregarCnpjs) o laço dos meses é quase
-      // instantâneo — redesenhar a tabela no meio só custaria tempo, então desenha uma vez,
-      // no último mês. localStorage só é gravado no final (fora do loop).
-      if (gruposProcessados === grupos.length) {
+      const ehUltimoGrupo = gruposProcessados === grupos.length;
+      if (gruposProcessados % RENDER_A_CADA === 0 || ehUltimoGrupo) {
+        // localStorage só é gravado de fato no final (fora do loop) — regravar o relatório
+        // inteiro a cada atualização de tela é um custo à toa repetido várias vezes.
         renderResultados(ultimosResultados, false);
+        // Cede o controle pro navegador respirar entre um render pesado e o próximo mês —
+        // suaviza a sensação de travamento mesmo quando o trabalho total é o mesmo.
         await sleep(0);
       }
     }
@@ -1201,8 +1061,6 @@ async function processar() {
   btnProcessar.disabled = true;
   statusLine.classList.remove('done');
   statusLine.style.display = 'flex';
-
-  await preCarregarCnpjs(registros);
 
   const resultadosNovos = [];
 
@@ -1241,7 +1099,6 @@ async function processar() {
 }
 
 async function reprocessarErros() {
-  limparFalhasCnpjRodada();
   const indices = ultimosResultados
     .map((r, i) => (r.tipo === 'erro' ? i : -1))
     .filter((i) => i !== -1);
@@ -1253,8 +1110,6 @@ async function reprocessarErros() {
   btnProcessar.disabled = true;
   statusLine.classList.remove('done');
   statusLine.style.display = 'flex';
-
-  await preCarregarCnpjs(indices.map((idx) => ultimosResultados[idx]));
 
   for (let k = 0; k < indices.length; k++) {
     const idx = indices[k];
@@ -1372,7 +1227,6 @@ function ajustarAliquota(id, valorDigitado) {
 // as exclusões automáticas. Aplica em TODOS os lançamentos do mesmo CNPJ/CPF ainda marcados
 // como "Fora do escopo" (não só a linha clicada), já que é o mesmo credor em todos os meses.
 async function marcarDentroDoEscopo(id) {
-  limparFalhasCnpjRodada();
   const origem = ultimosResultados.find((r) => r.id === id);
   if (!origem) return;
   const docAlvo = onlyDigits(origem.documento);
@@ -1506,7 +1360,7 @@ document.getElementById('situacaoDestaqueSelect').addEventListener('change', (e)
 
 // Calcula só os números de divergência/soma (sem tocar no DOM nem no localStorage) — usado
 // pra atualizar a mensagem de status por mês durante uma importação XLSX grande nos meses em
-// que a tabela na tela não é reconstruída (ela só é desenhada no último mês, em processar()).
+// que a tabela na tela não é reconstruída (ver RENDER_A_CADA em processar()).
 function calcularStatsResultados(resultados) {
   const TOLERANCIA = 0.02;
   let comDivergencia = 0;
@@ -2050,20 +1904,12 @@ document.getElementById('nf-ordenar-select').addEventListener('change', (e) => {
   renderNotifTab();
 });
 
-// Espera o usuário parar de digitar (300ms) antes de redesenhar a aba — sem isso, cada tecla
-// reagrupava e redesenhava todas as empresas.
-let _nfFiltroTimer = null;
 document.getElementById('nf-filtro-valor-input').addEventListener('input', (e) => {
-  clearTimeout(_nfFiltroTimer);
-  const valor = e.target.value;
-  _nfFiltroTimer = setTimeout(() => {
-    notifValorMinimo = parseFloat(valor) || 0;
-    renderNotifTab();
-  }, 300);
+  notifValorMinimo = parseFloat(e.target.value) || 0;
+  renderNotifTab();
 });
 
 document.getElementById('nf-filtro-valor-limpar').addEventListener('click', () => {
-  clearTimeout(_nfFiltroTimer);
   notifValorMinimo = 0;
   document.getElementById('nf-filtro-valor-input').value = '';
   document.getElementById('nf-filtro-valor').style.display = 'none';
@@ -2266,28 +2112,11 @@ function calcSelicAcumulada(origemStr, selicData) {
 }
 
 // ── BrasilAPI address ─────────────────────────────────────────────────────────
-// Usa primeiro o cartão CNPJ já baixado na apuração (cnpjCache) — sem nova requisição. Só
-// consulta a BrasilAPI quando o CNPJ não está em cache (ex: página recarregada), com uma única
-// tentativa e timeout curto: o endereço tem fallback no texto da notificação, então é melhor
-// falhar rápido do que travar a geração esperando a API.
 async function fetchEndereco(cnpj) {
   try {
-    const cached = cnpjCache.get(cnpj);
-    let d = cached && cached.data;
-    if (!d) {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      let resp;
-      try {
-        resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, { signal: controller.signal });
-      } finally {
-        clearTimeout(timeoutId);
-      }
-      if (!resp.ok) return null;
-      d = await resp.json();
-      cnpjCache.set(cnpj, { data: d, ts: Date.now() });
-      salvarCnpjCacheLS();
-    }
+    const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
+    if (!resp.ok) return null;
+    const d = await resp.json();
     // A BrasilAPI devolve o tipo do logradouro (RUA, AV, TRAVESSA, RODOVIA...) separado do
     // nome — sem juntar os dois, o endereço sai só com o nome ("DAS FLORES" em vez de
     // "RUA DAS FLORES").
