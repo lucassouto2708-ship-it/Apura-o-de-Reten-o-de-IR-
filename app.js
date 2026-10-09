@@ -683,19 +683,31 @@ function hideError() {
 // a sessão inteira da página — não só uma chamada de processar().
 const cnpjCache = new Map();
 
-async function consultaCnpjComRetry(cnpj, tentativas = 5) {
+// Falhas de rede/timeout da rodada atual (processar, reprocessar erros, marcar dentro do
+// escopo). Não entram no cnpjCache permanente (pra "Reprocessar erros" poder tentar de novo
+// depois), mas dentro da mesma rodada evitam repetir todas as tentativas a cada linha do
+// mesmo CNPJ — um fornecedor que aparece em 20 lançamentos custaria 20x o tempo de falha.
+// Zerado no início de cada rodada por limparFalhasCnpjRodada().
+const cnpjFalhasRodada = new Map();
+
+function limparFalhasCnpjRodada() {
+  cnpjFalhasRodada.clear();
+}
+
+async function consultaCnpjComRetry(cnpj, tentativas = 3) {
   if (cnpjCache.has(cnpj)) {
     const cached = cnpjCache.get(cnpj);
     if (cached.erro) throw cached.erro;
     return cached.data;
   }
+  if (cnpjFalhasRodada.has(cnpj)) throw cnpjFalhasRodada.get(cnpj);
   for (let i = 0; i < tentativas; i++) {
     try {
-      // Timeout de 12s por tentativa — sem isso, uma falha de rede momentânea (DNS lento,
+      // Timeout de 8s por tentativa — sem isso, uma falha de rede momentânea (DNS lento,
       // conexão instável) pode deixar o fetch "pendurado" bem mais tempo que o necessário
       // antes de sequer cair no catch e tentar de novo.
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
       let resp;
       try {
         resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, { signal: controller.signal });
@@ -724,12 +736,15 @@ async function consultaCnpjComRetry(cnpj, tentativas = 5) {
       if (i === tentativas - 1) {
         // Não cacheia falha de rede passageira — só cacheia depois de esgotar tentativas,
         // pra não travar um CNPJ bom em erro permanente por causa de uma falha momentânea.
+        cnpjFalhasRodada.set(cnpj, erroNormalizado);
         throw erroNormalizado;
       }
       await sleep(700 * (i + 1));
     }
   }
-  throw new Error('Falha ao consultar após múltiplas tentativas');
+  const erroFinal = new Error('Falha ao consultar após múltiplas tentativas');
+  cnpjFalhasRodada.set(cnpj, erroFinal);
+  throw erroFinal;
 }
 
 function sleep(ms) {
@@ -885,7 +900,7 @@ function vaiConsultarApi(reg) {
     if (detectarExclusaoPorNome(reg.nome)) return false;
     if (/CEMIG/i.test(reg.nome) && reg.despesaDescricao && /COSIP/i.test(reg.despesaDescricao)) return false;
   }
-  return !cnpjCache.has(cnpjDigits);
+  return !cnpjCache.has(cnpjDigits) && !cnpjFalhasRodada.has(cnpjDigits);
 }
 
 // Documento normalizado (só dígitos) — chave de agrupamento por credor.
@@ -968,6 +983,7 @@ function mesclarResultados(existentes, novos) {
 
 async function processar() {
   hideError();
+  limparFalhasCnpjRodada();
 
   // Descarta qualquer registro com tipo:'pj' que ainda esteja acumulado — esse tipo só
   // existe em registros reconstruídos a partir de um PDF/XLSX JÁ EXPORTADO pelo próprio app
@@ -1099,6 +1115,7 @@ async function processar() {
 }
 
 async function reprocessarErros() {
+  limparFalhasCnpjRodada();
   const indices = ultimosResultados
     .map((r, i) => (r.tipo === 'erro' ? i : -1))
     .filter((i) => i !== -1);
@@ -1227,6 +1244,7 @@ function ajustarAliquota(id, valorDigitado) {
 // as exclusões automáticas. Aplica em TODOS os lançamentos do mesmo CNPJ/CPF ainda marcados
 // como "Fora do escopo" (não só a linha clicada), já que é o mesmo credor em todos os meses.
 async function marcarDentroDoEscopo(id) {
+  limparFalhasCnpjRodada();
   const origem = ultimosResultados.find((r) => r.id === id);
   if (!origem) return;
   const docAlvo = onlyDigits(origem.documento);
@@ -1904,12 +1922,20 @@ document.getElementById('nf-ordenar-select').addEventListener('change', (e) => {
   renderNotifTab();
 });
 
+// Espera o usuário parar de digitar (300ms) antes de redesenhar a aba — sem isso, cada tecla
+// reagrupava e redesenhava todas as empresas.
+let _nfFiltroTimer = null;
 document.getElementById('nf-filtro-valor-input').addEventListener('input', (e) => {
-  notifValorMinimo = parseFloat(e.target.value) || 0;
-  renderNotifTab();
+  clearTimeout(_nfFiltroTimer);
+  const valor = e.target.value;
+  _nfFiltroTimer = setTimeout(() => {
+    notifValorMinimo = parseFloat(valor) || 0;
+    renderNotifTab();
+  }, 300);
 });
 
 document.getElementById('nf-filtro-valor-limpar').addEventListener('click', () => {
+  clearTimeout(_nfFiltroTimer);
   notifValorMinimo = 0;
   document.getElementById('nf-filtro-valor-input').value = '';
   document.getElementById('nf-filtro-valor').style.display = 'none';
@@ -2112,11 +2138,27 @@ function calcSelicAcumulada(origemStr, selicData) {
 }
 
 // ── BrasilAPI address ─────────────────────────────────────────────────────────
+// Usa primeiro o cartão CNPJ já baixado na apuração (cnpjCache) — sem nova requisição. Só
+// consulta a BrasilAPI quando o CNPJ não está em cache (ex: página recarregada), com uma única
+// tentativa e timeout curto: o endereço tem fallback no texto da notificação, então é melhor
+// falhar rápido do que travar a geração esperando a API.
 async function fetchEndereco(cnpj) {
   try {
-    const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
-    if (!resp.ok) return null;
-    const d = await resp.json();
+    const cached = cnpjCache.get(cnpj);
+    let d = cached && cached.data;
+    if (!d) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      let resp;
+      try {
+        resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, { signal: controller.signal });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+      if (!resp.ok) return null;
+      d = await resp.json();
+      cnpjCache.set(cnpj, { data: d });
+    }
     // A BrasilAPI devolve o tipo do logradouro (RUA, AV, TRAVESSA, RODOVIA...) separado do
     // nome — sem juntar os dois, o endereço sai só com o nome ("DAS FLORES" em vez de
     // "RUA DAS FLORES").
