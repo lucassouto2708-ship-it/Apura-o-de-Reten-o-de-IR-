@@ -91,9 +91,13 @@ function encontrarValoresMonetarios(texto) {
   return { valores: padrao || alternativo || [], parser: parseMoedaBR };
 }
 
+// Formatador criado uma vez só — toLocaleString com opções recria o formatador a cada
+// chamada (~30x mais lento), e a tabela chama isso milhares de vezes por redesenho.
+const FORMATADOR_MOEDA = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
 function formatMoeda(num) {
   if (isNaN(num)) return '-';
-  return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  return FORMATADOR_MOEDA.format(num);
 }
 
 function isValidCnpj(cnpj) {
@@ -683,6 +687,45 @@ function hideError() {
 // a sessão inteira da página — não só uma chamada de processar().
 const cnpjCache = new Map();
 
+// Cache de cartões CNPJ salvo no navegador (localStorage) por alguns dias — sem isso, cada
+// vez que a página é recarregada todos os fornecedores são consultados de novo na BrasilAPI,
+// que é de longe a parte mais lenta da apuração. Guarda só os campos que o app usa.
+const LS_CNPJ_KEY = 'apuracao_ir_cnpj_cache';
+const CNPJ_CACHE_VALIDADE_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
+const CNPJ_CAMPOS_USADOS = ['razao_social', 'opcao_pelo_simples', 'cnae_fiscal', 'cnae_fiscal_descricao',
+  'codigo_natureza_juridica', 'descricao_tipo_de_logradouro', 'logradouro', 'numero', 'complemento',
+  'bairro', 'municipio', 'uf', 'cep'];
+
+(function carregarCnpjCacheLS() {
+  try {
+    const salvo = JSON.parse(localStorage.getItem(LS_CNPJ_KEY) || '{}');
+    const agora = Date.now();
+    for (const [cnpj, item] of Object.entries(salvo)) {
+      if (item && item.data && agora - item.ts < CNPJ_CACHE_VALIDADE_MS) {
+        cnpjCache.set(cnpj, { data: item.data, ts: item.ts });
+      }
+    }
+  } catch (_) {}
+})();
+
+function salvarCnpjCacheLS() {
+  try {
+    const agora = Date.now();
+    const saida = {};
+    for (const [cnpj, item] of cnpjCache) {
+      if (!item.data) continue; // erro (ex: 404) não é persistido
+      if (!item.ts) item.ts = agora;
+      if (agora - item.ts >= CNPJ_CACHE_VALIDADE_MS) continue;
+      const enxuto = {};
+      for (const campo of CNPJ_CAMPOS_USADOS) {
+        if (item.data[campo] !== undefined) enxuto[campo] = item.data[campo];
+      }
+      saida[cnpj] = { ts: item.ts, data: enxuto };
+    }
+    localStorage.setItem(LS_CNPJ_KEY, JSON.stringify(saida));
+  } catch (_) {}
+}
+
 // Falhas de rede/timeout da rodada atual (processar, reprocessar erros, marcar dentro do
 // escopo). Não entram no cnpjCache permanente (pra "Reprocessar erros" poder tentar de novo
 // depois), mas dentro da mesma rodada evitam repetir todas as tentativas a cada linha do
@@ -701,6 +744,7 @@ async function consultaCnpjComRetry(cnpj, tentativas = 3) {
     return cached.data;
   }
   if (cnpjFalhasRodada.has(cnpj)) throw cnpjFalhasRodada.get(cnpj);
+  let esperas429 = 0;
   for (let i = 0; i < tentativas; i++) {
     try {
       // Timeout de 8s por tentativa — sem isso, uma falha de rede momentânea (DNS lento,
@@ -715,6 +759,14 @@ async function consultaCnpjComRetry(cnpj, tentativas = 3) {
         clearTimeout(timeoutId);
       }
       if (resp.status === 429) {
+        // Limite de requisições da API: espera e tenta de novo sem gastar uma das tentativas
+        // normais (até 4 esperas extras), já que a consulta é feita em paralelo.
+        if (esperas429 < 4) {
+          esperas429++;
+          i--;
+          await sleep(1000 * esperas429);
+          continue;
+        }
         await sleep(800 * (i + 1));
         continue;
       }
@@ -749,6 +801,31 @@ async function consultaCnpjComRetry(cnpj, tentativas = 3) {
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+// Consulta antecipada e em paralelo dos CNPJs únicos de um lote, antes do laço que processa
+// linha a linha. O resultado vai pro mesmo cache (cnpjCache / cnpjFalhasRodada) que
+// processarRegistro já usa, então a regra de apuração continua exatamente a mesma — só deixa
+// de esperar um CNPJ terminar pra começar o próximo.
+const CNPJ_CONSULTAS_SIMULTANEAS = 4;
+
+async function preCarregarCnpjs(registros) {
+  const unicos = [...new Set(registros.filter(vaiConsultarApi).map((r) => onlyDigits(r.documento)))];
+  if (unicos.length === 0) return;
+  let proximo = 0;
+  let concluidos = 0;
+  setStatus(`Consultando CNPJs na Receita: 0/${unicos.length}...`);
+  async function trabalhador() {
+    while (proximo < unicos.length) {
+      const cnpj = unicos[proximo++];
+      try { await consultaCnpjComRetry(cnpj); } catch (_) { /* vira linha de erro no processamento */ }
+      concluidos++;
+      setStatus(`Consultando CNPJs na Receita: ${concluidos}/${unicos.length}...`);
+      await sleep(250); // evita rate limit da API pública
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CNPJ_CONSULTAS_SIMULTANEAS, unicos.length) }, trabalhador));
+  salvarCnpjCacheLS();
 }
 
 // Categorias que o usuário pediu pra sempre desconsiderar da apuração (não são pessoas
@@ -1012,10 +1089,9 @@ async function processar() {
     statusLine.classList.remove('done');
     statusLine.style.display = 'flex';
 
+    await preCarregarCnpjs(grupos.flatMap((g) => g.registros));
+
     let gruposProcessados = 0;
-    const RENDER_A_CADA = 3; // reconstrói a tabela na tela a cada 3 meses, não todo mês —
-    // reduz bastante a travada em relatórios com muitos meses, mantendo uma prévia ao vivo
-    // (só que atualizada com menos frequência) em vez de travar a cada mês ou sumir de vez.
 
     for (const grupo of grupos) {
       const { nome: origem, registros } = grupo;
@@ -1037,13 +1113,11 @@ async function processar() {
       setStatus(`"${origem}" processado (${registros.length} registro(s)) — ${comDivergencia > 0 ? `${comDivergencia} divergência(s), ${formatMoeda(Math.abs(somaDiferenca))}` : 'sem divergências'}.`);
       pararAnimacaoStatus();
 
-      const ehUltimoGrupo = gruposProcessados === grupos.length;
-      if (gruposProcessados % RENDER_A_CADA === 0 || ehUltimoGrupo) {
-        // localStorage só é gravado de fato no final (fora do loop) — regravar o relatório
-        // inteiro a cada atualização de tela é um custo à toa repetido várias vezes.
+      // Com os CNPJs já pré-carregados (preCarregarCnpjs) o laço dos meses é quase
+      // instantâneo — redesenhar a tabela no meio só custaria tempo, então desenha uma vez,
+      // no último mês. localStorage só é gravado no final (fora do loop).
+      if (gruposProcessados === grupos.length) {
         renderResultados(ultimosResultados, false);
-        // Cede o controle pro navegador respirar entre um render pesado e o próximo mês —
-        // suaviza a sensação de travamento mesmo quando o trabalho total é o mesmo.
         await sleep(0);
       }
     }
@@ -1077,6 +1151,8 @@ async function processar() {
   btnProcessar.disabled = true;
   statusLine.classList.remove('done');
   statusLine.style.display = 'flex';
+
+  await preCarregarCnpjs(registros);
 
   const resultadosNovos = [];
 
@@ -1127,6 +1203,8 @@ async function reprocessarErros() {
   btnProcessar.disabled = true;
   statusLine.classList.remove('done');
   statusLine.style.display = 'flex';
+
+  await preCarregarCnpjs(indices.map((idx) => ultimosResultados[idx]));
 
   for (let k = 0; k < indices.length; k++) {
     const idx = indices[k];
@@ -1378,7 +1456,7 @@ document.getElementById('situacaoDestaqueSelect').addEventListener('change', (e)
 
 // Calcula só os números de divergência/soma (sem tocar no DOM nem no localStorage) — usado
 // pra atualizar a mensagem de status por mês durante uma importação XLSX grande nos meses em
-// que a tabela na tela não é reconstruída (ver RENDER_A_CADA em processar()).
+// que a tabela na tela não é reconstruída (ela só é desenhada no último mês, em processar()).
 function calcularStatsResultados(resultados) {
   const TOLERANCIA = 0.02;
   let comDivergencia = 0;
@@ -2157,7 +2235,8 @@ async function fetchEndereco(cnpj) {
       }
       if (!resp.ok) return null;
       d = await resp.json();
-      cnpjCache.set(cnpj, { data: d });
+      cnpjCache.set(cnpj, { data: d, ts: Date.now() });
+      salvarCnpjCacheLS();
     }
     // A BrasilAPI devolve o tipo do logradouro (RUA, AV, TRAVESSA, RODOVIA...) separado do
     // nome — sem juntar os dois, o endereço sai só com o nome ("DAS FLORES" em vez de
