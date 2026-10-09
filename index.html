@@ -596,6 +596,13 @@ th.sortable.sort-ativo .arrow { opacity: 1; color: var(--blue); }
   animation: fadeInUp .2s ease both;
 }
 .lote-chip b { color: var(--text); }
+.lote-chip-remove {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 15px; height: 15px; margin-left: 2px; padding: 0;
+  border: none; border-radius: 50%; background: transparent;
+  color: var(--muted); font-size: .72rem; line-height: 1; cursor: pointer;
+}
+.lote-chip-remove:hover { background: var(--red-lt); color: var(--red); }
 
 tbody tr { animation: fadeInUp .2s ease both; }
 
@@ -673,6 +680,13 @@ details.advanced summary::-webkit-details-marker { display: none; }
   padding: 6px 10px; cursor: pointer; outline: none;
 }
 #nf-ordenar-select:focus { border-color: var(--blue); }
+#nf-filtro-valor-input {
+  width: 120px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface2); color: var(--text);
+  font-family: inherit; font-size: .78rem; font-weight: 600;
+  padding: 6px 10px; outline: none;
+}
+#nf-filtro-valor-input:focus { border-color: var(--blue); }
 
 /* Batch buttons */
 #nf-gerar-todas {
@@ -697,8 +711,14 @@ details.advanced summary::-webkit-details-marker { display: none; }
   padding: 9px 18px; font-size: .82rem; font-weight: 700;
   border-radius: 6px; cursor: pointer;
 }
-.btn-batch-docx:hover:not(:disabled), .btn-batch-xlsx:hover:not(:disabled), .btn-batch-all:hover:not(:disabled) { filter: brightness(1.08); }
-.btn-batch-docx svg, .btn-batch-xlsx svg, .btn-batch-all svg { vertical-align: -2px; margin-right: 4px; }
+.btn-batch-report {
+  background: var(--red-lt); color: var(--red);
+  border: 1px solid rgba(192,57,43,.25);
+  padding: 9px 18px; font-size: .82rem; font-weight: 700;
+  border-radius: 6px; cursor: pointer;
+}
+.btn-batch-docx:hover:not(:disabled), .btn-batch-xlsx:hover:not(:disabled), .btn-batch-all:hover:not(:disabled), .btn-batch-report:hover:not(:disabled) { filter: brightness(1.08); }
+.btn-batch-docx svg, .btn-batch-xlsx svg, .btn-batch-all svg, .btn-batch-report svg { vertical-align: -2px; margin-right: 4px; }
 
 /* Cards empresa */
 .empresa-card {
@@ -1030,6 +1050,10 @@ details.advanced summary::-webkit-details-marker { display: none; }
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg>
         Gerar Tudo (ZIP por empresa)
       </button>
+      <button class="btn-batch-report" onclick="gerarRelatorioGeralPdf()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v13a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2z"/><path d="M8 12h8M8 16h8M8 8h2"/></svg>
+        Relatório Geral (PDF)
+      </button>
     </div>
 
     <!-- Total geral + ordenação -->
@@ -1046,8 +1070,14 @@ details.advanced summary::-webkit-details-marker { display: none; }
           <option value="nome-asc">Nome (A-Z)</option>
           <option value="nome-desc">Nome (Z-A)</option>
           <option value="bruto-desc">Valor Bruto (maior primeiro)</option>
+          <option value="__filtro__">Notificar só a partir de um valor…</option>
         </select>
       </label>
+      <div id="nf-filtro-valor" class="nf-ordenar-label" style="display:none;">
+        Diferença a partir de R$
+        <input type="number" id="nf-filtro-valor-input" min="0" step="0.01" placeholder="0,00">
+        <button type="button" class="secondary" id="nf-filtro-valor-limpar" style="font-size:.74rem; padding:6px 10px;">Remover filtro</button>
+      </div>
     </div>
 
     <!-- Cards das empresas -->
