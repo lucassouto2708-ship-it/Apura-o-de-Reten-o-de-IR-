@@ -726,9 +726,16 @@ function salvarCnpjCacheLS() {
 // Falhas da rodada atual (processar / reprocessar erros / marcar dentro do escopo). Sem isso,
 // um CNPJ que a BrasilAPI não consegue responder era consultado de novo — com todas as 5
 // tentativas — em CADA linha daquele fornecedor; com a API instável, isso dava ~30s por linha
-// e uma apuração de poucos meses levava horas. Não é salvo no navegador: "Reprocessar erros"
-// começa uma rodada nova e tenta de novo de verdade.
-const cnpjFalhasRodada = new Map();
+// e uma apuração de poucos meses levava horas. Cada CNPJ tem até CNPJ_CHANCES_POR_RODADA
+// rodadas de tentativas (numa linha seguinte do mesmo fornecedor) antes de ficar como erro em
+// todas as suas linhas. Não é salvo no navegador: "Reprocessar erros" começa uma rodada nova.
+const CNPJ_CHANCES_POR_RODADA = 2;
+const cnpjFalhasRodada = new Map(); // cnpj -> { erro, vezes }
+
+function cnpjDesistidoNaRodada(cnpj) {
+  const falha = cnpjFalhasRodada.get(cnpj);
+  return !!falha && falha.vezes >= CNPJ_CHANCES_POR_RODADA;
+}
 
 // Disjuntor: se CNPJS_FALHOS_SEGUIDOS_LIMITE fornecedores DIFERENTES seguidos falham depois de
 // todas as tentativas, a BrasilAPI está fora do ar (não é problema de um CNPJ específico). Aí
@@ -757,10 +764,10 @@ async function consultaCnpjComRetry(cnpj, tentativas = 5) {
     if (cached.erro) throw cached.erro;
     return cached.data;
   }
-  if (cnpjFalhasRodada.has(cnpj)) throw cnpjFalhasRodada.get(cnpj);
+  if (cnpjDesistidoNaRodada(cnpj)) throw cnpjFalhasRodada.get(cnpj).erro;
   if (apiIndisponivelNaRodada) {
     const erroApi = new Error(MSG_API_INDISPONIVEL);
-    cnpjFalhasRodada.set(cnpj, erroApi);
+    cnpjFalhasRodada.set(cnpj, { erro: erroApi, vezes: CNPJ_CHANCES_POR_RODADA });
     throw erroApi;
   }
   for (let i = 0; i < tentativas; i++) {
@@ -813,7 +820,8 @@ async function consultaCnpjComRetry(cnpj, tentativas = 5) {
 }
 
 function registrarFalhaCnpjNaRodada(cnpj, erro) {
-  cnpjFalhasRodada.set(cnpj, erro);
+  const anterior = cnpjFalhasRodada.get(cnpj);
+  cnpjFalhasRodada.set(cnpj, { erro, vezes: (anterior ? anterior.vezes : 0) + 1 });
   cnpjsFalhosSeguidos++;
   if (cnpjsFalhosSeguidos >= CNPJS_FALHOS_SEGUIDOS_LIMITE) apiIndisponivelNaRodada = true;
 }
@@ -971,7 +979,7 @@ function vaiConsultarApi(reg) {
     if (detectarExclusaoPorNome(reg.nome)) return false;
     if (/CEMIG/i.test(reg.nome) && reg.despesaDescricao && /COSIP/i.test(reg.despesaDescricao)) return false;
   }
-  return !cnpjCache.has(cnpjDigits) && !cnpjFalhasRodada.has(cnpjDigits) && !apiIndisponivelNaRodada;
+  return !cnpjCache.has(cnpjDigits) && !cnpjDesistidoNaRodada(cnpjDigits) && !apiIndisponivelNaRodada;
 }
 
 // Documento normalizado (só dígitos) — chave de agrupamento por credor.
