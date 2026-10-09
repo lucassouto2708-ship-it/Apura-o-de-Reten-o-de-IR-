@@ -1142,47 +1142,7 @@ function atualizarLotesBox() {
   }
   lotesBox.style.display = 'flex';
   lotesBox.innerHTML = `<span style="color:var(--muted); font-size:.8rem;">Relatórios no lote:</span>` +
-    lotes.map((l, i) => `<span class="lote-chip">${escapeHtml(l.nome)} <b>(${l.qtd})</b>
-      <button type="button" class="lote-chip-remove" title="Remover ${escapeHtml(l.nome)} da apuração" onclick="removerLote(${i})">✕</button>
-    </span>`).join('');
-}
-
-// Remove um relatório/mês específico já somado na apuração atual, sem precisar reprocessar
-// tudo de novo. Filtra direto em cima de ultimosResultados (preservando qualquer edição manual
-// feita depois do processamento — alíquota ajustada, "marcar dentro do escopo" etc.), não
-// recalculando a partir dos dados originais do lote, que já perderiam essas edições.
-// Lançamento que só veio daquele mês -> remove a linha. Lançamento "fundido" (mesmo documento
-// + mesmo valor em mais de um relatório) -> mantém a linha, só tira aquele mês do rótulo de
-// origem, já que o lançamento continua valendo pelos outros meses que o trouxeram.
-function removerLote(idx) {
-  const lote = lotes[idx];
-  if (!lote) return;
-  lotes.splice(idx, 1);
-
-  const novosResultados = ultimosResultados
-    .map((r) => {
-      const partesOrigem = (r.origem || '').split(' + ');
-      if (!partesOrigem.includes(lote.nome)) return r;
-      const restantes = partesOrigem.filter((p) => p !== lote.nome);
-      if (restantes.length === 0) return null;
-      // Só continua "fundido" (badge 🔗) se ainda restar mais de uma origem — com uma só,
-      // voltou a ser um lançamento normal, não uma fusão de relatórios diferentes.
-      return { ...r, origem: restantes.join(' + '), duplicado: restantes.length > 1 };
-    })
-    .filter((r) => r !== null);
-
-  atualizarLotesBox();
-
-  if (novosResultados.length === 0) {
-    // Removeu o último lote restante -> mesmo estado de "Limpar"
-    ultimosResultados = [];
-    resultsCard.style.display = 'none';
-    btnNovoLote.style.display = 'none';
-    try { localStorage.removeItem(LS_KEY); } catch(e) {}
-  } else {
-    renderResultados(novosResultados);
-  }
-  renderNotifTab();
+    lotes.map((l) => `<span class="lote-chip">${escapeHtml(l.nome)} <b>(${l.qtd})</b></span>`).join('');
 }
 
 // Mostra o nome oficial (razão social do cartão CNPJ), com um tooltip indicando o nome
@@ -1889,30 +1849,8 @@ function ordenarEmpresasNotif(lista, criterio) {
   }
 }
 
-// Valor mínimo de diferença escolhido pelo usuário: empresas abaixo dele saem de
-// empresasNotif, então somem dos cards e de todas as gerações em lote.
-let notifValorMinimo = 0;
-
 document.getElementById('nf-ordenar-select').addEventListener('change', (e) => {
-  if (e.target.value === '__filtro__') {
-    e.target.value = notifOrdenacao;
-    document.getElementById('nf-filtro-valor').style.display = 'flex';
-    document.getElementById('nf-filtro-valor-input').focus();
-    return;
-  }
   notifOrdenacao = e.target.value;
-  renderNotifTab();
-});
-
-document.getElementById('nf-filtro-valor-input').addEventListener('input', (e) => {
-  notifValorMinimo = parseFloat(e.target.value) || 0;
-  renderNotifTab();
-});
-
-document.getElementById('nf-filtro-valor-limpar').addEventListener('click', () => {
-  notifValorMinimo = 0;
-  document.getElementById('nf-filtro-valor-input').value = '';
-  document.getElementById('nf-filtro-valor').style.display = 'none';
   renderNotifTab();
 });
 
@@ -1973,13 +1911,9 @@ function renderNotifTab(fonteLabel) {
   emptyEl.style.display = 'none';
   sessionBar.style.display = 'flex';
   toolbar.style.display = 'flex';
-  const todasEmpresas = ordenarEmpresasNotif(agruparPorEmpresa(ultimosResultados), notifOrdenacao);
-  empresasNotif = todasEmpresas.filter(emp => Math.abs(totaisEmpresa(emp).totalDif) >= notifValorMinimo);
+  empresasNotif = ordenarEmpresasNotif(agruparPorEmpresa(ultimosResultados), notifOrdenacao);
   const prefix = fonteLabel ? fonteLabel.trim() + ' — ' : '';
-  const sufixoFiltro = notifValorMinimo > 0
-    ? ` (de ${todasEmpresas.length}, filtrando diferença a partir de ${formatMoeda(notifValorMinimo)})`
-    : '';
-  sessionLbl.textContent = prefix + `${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência` + sufixoFiltro;
+  sessionLbl.textContent = prefix + `${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência`;
   document.getElementById('nf-gerar-todas').style.display = 'flex';
   document.getElementById('nf-ordenar-select').value = notifOrdenacao;
 
@@ -2117,12 +2051,8 @@ async function fetchEndereco(cnpj) {
     const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
     if (!resp.ok) return null;
     const d = await resp.json();
-    // A BrasilAPI devolve o tipo do logradouro (RUA, AV, TRAVESSA, RODOVIA...) separado do
-    // nome — sem juntar os dois, o endereço sai só com o nome ("DAS FLORES" em vez de
-    // "RUA DAS FLORES").
-    const logradouroCompleto = [d.descricao_tipo_de_logradouro, d.logradouro].filter(Boolean).join(' ');
     return [
-      logradouroCompleto,
+      d.logradouro,
       d.numero    ? `Nº ${d.numero}`   : null,
       d.complemento || null,
       d.bairro    ? `Bairro: ${d.bairro}` : null,
@@ -2163,7 +2093,7 @@ async function gerarPdfEmpresa(idx, opts = {}) {
   doc.text(`Credor: ${emp.nome}   CNPJ: ${cnpjFmt}`, 14, 20);
 
   // Dados da tabela
-  const head = [['#','CREDOR','CNPJ','CNAE','DATA LIQ.','EMPENHO','VALOR BRUTO','ALÍQ.%','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA','SELIC%','VL. ATUALIZADO']];
+  const head = [['#','CREDOR','CNPJ','DATA LIQ.','EMPENHO','VALOR BRUTO','ALÍQ.%','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA','SELIC%','VL. ATUALIZADO']];
   let somaVB=0, somaDev=0, somaRet=0, somaDif=0, somaAtual=0;
 
   const body = regs.map((r, i) => {
@@ -2183,7 +2113,6 @@ async function gerarPdfEmpresa(idx, opts = {}) {
       i + 1,
       r.nome,
       formatCnpj(onlyDigits(r.documento)) || r.documento,
-      r.cnaePrincipal ? formatCnae(r.cnaePrincipal) : '-',
       r.origem || '',
       r.numEmpenho || '-',
       fmtBRL(r.valorPago),
@@ -2197,9 +2126,9 @@ async function gerarPdfEmpresa(idx, opts = {}) {
   });
 
   // Linha de totais
-  body.push(['TOTAL','','','','','', fmtBRL(somaVB),'', fmtBRL(somaDev), fmtBRL(somaRet), fmtBRL(somaDif),'', fmtBRL(somaAtual)]);
+  body.push(['TOTAL','','','','', fmtBRL(somaVB),'', fmtBRL(somaDev), fmtBRL(somaRet), fmtBRL(somaDif),'', fmtBRL(somaAtual)]);
 
-  // Larguras: soma = 262mm para A4 landscape com margens 14mm (269mm disponíveis)
+  // Larguras: soma = 267mm para A4 landscape com margens 14mm (269mm disponíveis)
   doc.autoTable({
     head,
     body,
@@ -2208,19 +2137,18 @@ async function gerarPdfEmpresa(idx, opts = {}) {
     styles: { fontSize: 6.5, cellPadding: 2, overflow: 'linebreak', valign: 'middle' },
     headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', halign: 'center', minCellHeight: 8 },
     columnStyles: {
-      0:  { halign: 'center', cellWidth: 8 },
-      1:  { cellWidth: 44 },
-      2:  { cellWidth: 26 },
-      3:  { cellWidth: 20 },
+      0:  { halign: 'center', cellWidth: 9 },
+      1:  { cellWidth: 50 },
+      2:  { cellWidth: 28 },
+      3:  { cellWidth: 18 },
       4:  { cellWidth: 16 },
-      5:  { cellWidth: 14 },
-      6:  { halign: 'right', cellWidth: 22 },
-      7:  { halign: 'right', cellWidth: 11 },
-      8:  { halign: 'right', cellWidth: 22 },
-      9:  { halign: 'right', cellWidth: 22 },
-      10: { halign: 'right', cellWidth: 22 },
-      11: { halign: 'right', cellWidth: 13 },
-      12: { halign: 'right', cellWidth: 22 },
+      5:  { halign: 'right', cellWidth: 24 },
+      6:  { halign: 'right', cellWidth: 12 },
+      7:  { halign: 'right', cellWidth: 24 },
+      8:  { halign: 'right', cellWidth: 24 },
+      9:  { halign: 'right', cellWidth: 24 },
+      10: { halign: 'right', cellWidth: 14 },
+      11: { halign: 'right', cellWidth: 24 },
     },
     didParseCell(data) {
       const lastRow = body.length - 1;
@@ -2229,7 +2157,7 @@ async function gerarPdfEmpresa(idx, opts = {}) {
         data.cell.styles.fillColor = [235, 240, 248];
       }
       // Diferença negativa em vermelho
-      if (data.column.index === 10 && data.row.index < lastRow) {
+      if (data.column.index === 9 && data.row.index < lastRow) {
         const val = regs[data.row.index];
         if (val) {
           const dif = (val.retencaoEsperada || 0) - (val.retencaoTxt || 0);
@@ -2370,21 +2298,28 @@ async function gerarDocxEmpresa(idx, opts = {}) {
 
   // Map: concatenated yellow text (from template) → replacement value
   const repMap = new Map([
-    ['001/2026', dadosE.numNotif],
-    ['Construtora Alvarenga e Cia. Ltda.', emp.nome],
-    ['15.641.914/0001-09', cnpjFmtDocx || emp.documento],
-    ['Ernesto Duarte de Almeida, nº 88, Parque Tinola, São Fidélis/RJ, CEP 28400-000.', endereco || '[Endereço completo do credor]'],
-    // Data: concatenada a partir de 3 runs (cidade/UF + dia/mês/ano + ponto final)
-    ['Pirapetinga/MG, 17 de setembro de 2026.', `${cfg.municipio}/${cfg.estado}, ${dia} de ${mes} de ${ano}.`],
-    ['Sérgio da Silva Netto', cfg.auditor],
-    ['13.725', cfg.matricula],
+    ['COROACI', cfg.municipio],
+    ['Nº [Inserir: Número/Ano]', 'Nº ' + dadosE.numNotif],
+    ['PORTO SEGURO CIA DE SEGUROS GERAIS', emp.nome],
+    ['61.198.164.0001-60', cnpjFmtDocx || emp.documento],
+    ['[Inserir: Número da Inscrição]', '[Inserir: Número da Inscrição]'],
+    // Endereço — template usa hífen simples (-)
+    ['AV: RIO BRANCO Nº1489, BAIRRO: CAMPOS ELIESOS, SÃO PAULO - SP, CEP 01.205.001', endereco || '[Endereço completo do credor]'],
+    ['AV: RIO BRANCO Nº1489, BAIRRO: CAMPOS ELIESOS, SÃO PAULO – SP, CEP 01.205.001', endereco || '[Endereço completo do credor]'],
+    // R$ values handled in order below
+    ['Coroci – MG', cfg.municipio + ' – MG'],
+    // Date: concatenated from 6 runs
+    [`COROACI/MG, 20 de Agosto de 2026`, `${cfg.municipio}/${cfg.estado}, ${dia} de ${mes} de ${ano}`],
+    // Auditor e matrícula — com e sem ] final (depende de como os runs foram partidos)
+    ['[Inserir: Nome do Auditor / Fiscal Tributário]', cfg.auditor],
+    ['[Inserir: Matrícula]', cfg.matricula],
+    ['[Inserir: Matrícula', cfg.matricula],
   ]);
 
-  // R$ values appear in order: principal, atualização, total (2x: seção 3 e item "a" da intimação)
+  // R$ values appear in order: principal, atualização, total
   const rsBRLQueue = [
     'R$' + fmtBRL(valorPrincipal),
     'R$' + fmtBRL(atualizacao),
-    'R$' + fmtBRL(totalConsol),
     'R$' + fmtBRL(totalConsol),
   ];
   let rsBRLIdx = 0;
@@ -2392,6 +2327,13 @@ async function gerarDocxEmpresa(idx, opts = {}) {
   const WNS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
   const parser = new DOMParser();
   const xmlDoc = parser.parseFromString(docXml, 'text/xml');
+
+  // Remove parágrafos de Inscrição Municipal e Processo Administrativo/Contrato
+  const REMOVE_PHRASES = ['Inscrição Municipal', 'Processo Administrativo / Contrato', 'Nota de Empenho'];
+  Array.from(xmlDoc.getElementsByTagNameNS(WNS, 'p')).forEach(para => {
+    const txt = Array.from(para.getElementsByTagNameNS(WNS, 't')).map(t => t.textContent).join('');
+    if (REMOVE_PHRASES.some(p => txt.includes(p))) para.parentNode.removeChild(para);
+  });
 
   // Process all paragraphs
   const paragraphs = Array.from(xmlDoc.getElementsByTagNameNS(WNS, 'p'));
@@ -2427,6 +2369,14 @@ async function gerarDocxEmpresa(idx, opts = {}) {
       i = j;
     }
   }
+
+  // Remove o ']' solto que fica após o campo matrícula (run não-amarelo separado)
+  xmlDoc.getElementsByTagNameNS(WNS, 't') && Array.from(xmlDoc.getElementsByTagNameNS(WNS, 't')).forEach(t => {
+    if (t.textContent === ']') {
+      const run = t.parentNode;
+      if (run && run.parentNode) run.parentNode.removeChild(run);
+    }
+  });
 
   // Replace non-yellow hardcoded fields via string replacement
   const serializer = new XMLSerializer();
@@ -2723,93 +2673,6 @@ async function gerarTudoEmpresas() {
   } finally {
     _nfHideLoading();
   }
-}
-
-// Relatório geral em PDF: uma linha por empresa (não por nota fiscal) com os mesmos totais
-// exibidos nos cards da aba Notificações — pra imprimir/consultar todas as divergências
-// de uma vez, sem precisar abrir o demonstrativo de cada empresa individualmente.
-function gerarRelatorioGeralPdf() {
-  if (!empresasNotif.length) { alert('Nenhuma empresa carregada.'); return; }
-  if (!window.jspdf) { alert('Biblioteca jsPDF não carregou. Verifique a conexão e recarregue.'); return; }
-
-  const { jsPDF } = window.jspdf;
-  const fmtM = (v) => typeof v === 'number' ? formatMoeda(v) : '—';
-  const cfg = lerConfigNotif();
-
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  const BLUE = [30, 78, 140];
-  const W = doc.internal.pageSize.getWidth();
-
-  doc.setFontSize(12);
-  doc.setTextColor(...BLUE);
-  doc.setFont('helvetica', 'bold');
-  doc.text('RELATÓRIO GERAL — NOTIFICAÇÕES DE INCONSISTÊNCIA DE IRRF', 14, 15);
-
-  doc.setFontSize(8);
-  doc.setTextColor(60, 60, 60);
-  doc.setFont('helvetica', 'normal');
-  const filtroTxt = notifValorMinimo > 0 ? ` a partir de ${formatMoeda(notifValorMinimo)}` : '';
-  doc.text(`Município: ${cfg.municipio}/${cfg.estado}   —   ${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência${filtroTxt}`, 14, 21);
-
-  let somaBruto = 0, somaDevido = 0, somaRetido = 0, somaDif = 0;
-  const head = [['#','CREDOR','CNPJ','CNAE','VALOR BRUTO','IRRF DEVIDO','IRRF RETIDO','DIFERENÇA']];
-  const body = empresasNotif.map((emp, idx) => {
-    const { totalBruto, totalDevido, totalRetido, totalDif } = totaisEmpresa(emp);
-    somaBruto  += totalBruto;
-    somaDevido += totalDevido;
-    somaRetido += totalRetido;
-    somaDif    += totalDif;
-    const cnaePrincipal = registrosAtuaisDaEmpresa(emp).find(r => r.cnaePrincipal)?.cnaePrincipal;
-    return [
-      idx + 1,
-      emp.nome,
-      formatCnpj(onlyDigits(emp.documento)) || emp.documento,
-      cnaePrincipal ? formatCnae(cnaePrincipal) : '-',
-      fmtM(totalBruto),
-      fmtM(totalDevido),
-      fmtM(totalRetido),
-      fmtM(Math.abs(totalDif)),
-    ];
-  });
-  body.push(['TOTAL','','','', fmtM(somaBruto), fmtM(somaDevido), fmtM(somaRetido), fmtM(Math.abs(somaDif))]);
-
-  doc.autoTable({
-    head,
-    body,
-    startY: 26,
-    tableWidth: 'wrap',
-    styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak', valign: 'middle' },
-    headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', halign: 'center', minCellHeight: 9 },
-    columnStyles: {
-      0: { halign: 'center', cellWidth: 9 },
-      1: { cellWidth: 74 },
-      2: { cellWidth: 34 },
-      3: { cellWidth: 22 },
-      4: { halign: 'right', cellWidth: 32 },
-      5: { halign: 'right', cellWidth: 32 },
-      6: { halign: 'right', cellWidth: 32 },
-      7: { halign: 'right', cellWidth: 32 },
-    },
-    didParseCell(data) {
-      const lastRow = body.length - 1;
-      if (data.row.index === lastRow) {
-        data.cell.styles.fontStyle = 'bold';
-        data.cell.styles.fillColor = [235, 240, 248];
-      }
-      if (data.column.index === 7) data.cell.styles.textColor = [192, 57, 43];
-    },
-    margin: { left: 14, right: 14 },
-  });
-
-  const pageCount = doc.internal.getNumberOfPages();
-  for (let p = 1; p <= pageCount; p++) {
-    doc.setPage(p);
-    doc.setFontSize(7);
-    doc.setTextColor(150);
-    doc.text(`Página ${p} de ${pageCount}`, W - 14, doc.internal.pageSize.getHeight() - 6, { align: 'right' });
-  }
-
-  doc.save(nomeArquivoComData('pdf').replace('apuracao_ir_', 'relatorio_geral_notificacoes_'));
 }
 
 // ── Dispatcher: PDF or XLSX ───────────────────────────────────────────────────
