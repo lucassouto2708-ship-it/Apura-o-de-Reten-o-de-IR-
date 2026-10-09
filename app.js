@@ -683,11 +683,85 @@ function hideError() {
 // a sessão inteira da página — não só uma chamada de processar().
 const cnpjCache = new Map();
 
+// Cartões CNPJ consultados com sucesso ficam salvos no navegador (localStorage) por alguns
+// dias — assim, recarregar a página ou fechar a aba no meio de uma apuração não perde o que já
+// foi consultado, e a próxima apuração com os mesmos fornecedores não depende da BrasilAPI.
+// Guarda só os campos que o app usa. Falhas nunca são salvas aqui.
+const LS_CNPJ_KEY = 'apuracao_ir_cnpj_cache';
+const CNPJ_CACHE_VALIDADE_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
+const CNPJ_CAMPOS_USADOS = ['razao_social', 'opcao_pelo_simples', 'cnae_fiscal', 'cnae_fiscal_descricao',
+  'codigo_natureza_juridica', 'descricao_tipo_de_logradouro', 'logradouro', 'numero', 'complemento',
+  'bairro', 'municipio', 'uf', 'cep'];
+
+(function carregarCnpjCacheLS() {
+  try {
+    const salvo = JSON.parse(localStorage.getItem(LS_CNPJ_KEY) || '{}');
+    const agora = Date.now();
+    for (const [cnpj, item] of Object.entries(salvo)) {
+      if (item && item.data && agora - item.ts < CNPJ_CACHE_VALIDADE_MS) {
+        cnpjCache.set(cnpj, { data: item.data, ts: item.ts });
+      }
+    }
+  } catch (_) {}
+})();
+
+function salvarCnpjCacheLS() {
+  try {
+    const agora = Date.now();
+    const saida = {};
+    for (const [cnpj, item] of cnpjCache) {
+      if (!item.data) continue; // erro (ex: 404) não é salvo
+      if (!item.ts) item.ts = agora;
+      if (agora - item.ts >= CNPJ_CACHE_VALIDADE_MS) continue;
+      const enxuto = {};
+      for (const campo of CNPJ_CAMPOS_USADOS) {
+        if (item.data[campo] !== undefined) enxuto[campo] = item.data[campo];
+      }
+      saida[cnpj] = { ts: item.ts, data: enxuto };
+    }
+    localStorage.setItem(LS_CNPJ_KEY, JSON.stringify(saida));
+  } catch (_) {}
+}
+
+// Falhas da rodada atual (processar / reprocessar erros / marcar dentro do escopo). Sem isso,
+// um CNPJ que a BrasilAPI não consegue responder era consultado de novo — com todas as 5
+// tentativas — em CADA linha daquele fornecedor; com a API instável, isso dava ~30s por linha
+// e uma apuração de poucos meses levava horas. Não é salvo no navegador: "Reprocessar erros"
+// começa uma rodada nova e tenta de novo de verdade.
+const cnpjFalhasRodada = new Map();
+
+// Disjuntor: se CNPJS_FALHOS_SEGUIDOS_LIMITE fornecedores DIFERENTES seguidos falham depois de
+// todas as tentativas, a BrasilAPI está fora do ar (não é problema de um CNPJ específico). Aí
+// o resto da rodada não consulta mais nada — os CNPJs que faltam viram erro na hora, com uma
+// mensagem clara — em vez de deixar a tela "Processando" por horas sem chance de dar certo.
+const CNPJS_FALHOS_SEGUIDOS_LIMITE = 5;
+const MSG_API_INDISPONIVEL = 'BrasilAPI indisponível no momento — use "Reprocessar erros" mais tarde';
+let cnpjsFalhosSeguidos = 0;
+let apiIndisponivelNaRodada = false;
+
+function iniciarRodadaConsultas() {
+  cnpjFalhasRodada.clear();
+  cnpjsFalhosSeguidos = 0;
+  apiIndisponivelNaRodada = false;
+}
+
+// Mostra o aviso no fim de uma rodada em que a BrasilAPI caiu.
+function avisarSeApiIndisponivel() {
+  if (!apiIndisponivelNaRodada) return;
+  showError('A consulta de CNPJ da BrasilAPI está fora do ar ou instável agora — por isso os lançamentos de alguns fornecedores ficaram com erro. Nada foi perdido: o que já foi consultado fica salvo. Tente "Reprocessar erros" mais tarde.');
+}
+
 async function consultaCnpjComRetry(cnpj, tentativas = 5) {
   if (cnpjCache.has(cnpj)) {
     const cached = cnpjCache.get(cnpj);
     if (cached.erro) throw cached.erro;
     return cached.data;
+  }
+  if (cnpjFalhasRodada.has(cnpj)) throw cnpjFalhasRodada.get(cnpj);
+  if (apiIndisponivelNaRodada) {
+    const erroApi = new Error(MSG_API_INDISPONIVEL);
+    cnpjFalhasRodada.set(cnpj, erroApi);
+    throw erroApi;
   }
   for (let i = 0; i < tentativas; i++) {
     try {
@@ -712,24 +786,36 @@ async function consultaCnpjComRetry(cnpj, tentativas = 5) {
       if (resp.status === 404) {
         const erro404 = new Error('CNPJ não encontrado na Receita Federal');
         cnpjCache.set(cnpj, { erro: erro404 });
+        cnpjsFalhosSeguidos = 0; // a API respondeu — não é queda
         throw erro404;
       }
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
-      cnpjCache.set(cnpj, { data });
+      cnpjCache.set(cnpj, { data, ts: Date.now() });
+      cnpjsFalhosSeguidos = 0;
+      salvarCnpjCacheLS();
       return data;
     } catch (e) {
       if (e.message === 'CNPJ não encontrado na Receita Federal') throw e;
       const erroNormalizado = e.name === 'AbortError' ? new Error('Tempo de resposta excedido consultando a Receita') : e;
       if (i === tentativas - 1) {
-        // Não cacheia falha de rede passageira — só cacheia depois de esgotar tentativas,
-        // pra não travar um CNPJ bom em erro permanente por causa de uma falha momentânea.
+        // Não cacheia falha de rede passageira de forma permanente — só pra rodada atual,
+        // depois de esgotar as tentativas ("Reprocessar erros" tenta de novo).
+        registrarFalhaCnpjNaRodada(cnpj, erroNormalizado);
         throw erroNormalizado;
       }
       await sleep(700 * (i + 1));
     }
   }
-  throw new Error('Falha ao consultar após múltiplas tentativas');
+  const erroFinal = new Error('Falha ao consultar após múltiplas tentativas');
+  registrarFalhaCnpjNaRodada(cnpj, erroFinal);
+  throw erroFinal;
+}
+
+function registrarFalhaCnpjNaRodada(cnpj, erro) {
+  cnpjFalhasRodada.set(cnpj, erro);
+  cnpjsFalhosSeguidos++;
+  if (cnpjsFalhosSeguidos >= CNPJS_FALHOS_SEGUIDOS_LIMITE) apiIndisponivelNaRodada = true;
 }
 
 function sleep(ms) {
@@ -885,7 +971,7 @@ function vaiConsultarApi(reg) {
     if (detectarExclusaoPorNome(reg.nome)) return false;
     if (/CEMIG/i.test(reg.nome) && reg.despesaDescricao && /COSIP/i.test(reg.despesaDescricao)) return false;
   }
-  return !cnpjCache.has(cnpjDigits);
+  return !cnpjCache.has(cnpjDigits) && !cnpjFalhasRodada.has(cnpjDigits) && !apiIndisponivelNaRodada;
 }
 
 // Documento normalizado (só dígitos) — chave de agrupamento por credor.
@@ -968,6 +1054,7 @@ function mesclarResultados(existentes, novos) {
 
 async function processar() {
   hideError();
+  iniciarRodadaConsultas();
 
   // Descarta qualquer registro com tipo:'pj' que ainda esteja acumulado — esse tipo só
   // existe em registros reconstruídos a partir de um PDF/XLSX JÁ EXPORTADO pelo próprio app
@@ -1038,6 +1125,7 @@ async function processar() {
     btnNovoLote.style.display = 'inline-flex';
     fileInput.value = '';
     origemInput.value = '';
+    avisarSeApiIndisponivel();
     return;
   }
 
@@ -1096,9 +1184,12 @@ async function processar() {
   txtInput.value = '';
   fileInput.value = '';
   origemInput.value = '';
+  avisarSeApiIndisponivel();
 }
 
 async function reprocessarErros() {
+  hideError();
+  iniciarRodadaConsultas();
   const indices = ultimosResultados
     .map((r, i) => (r.tipo === 'erro' ? i : -1))
     .filter((i) => i !== -1);
@@ -1126,6 +1217,7 @@ async function reprocessarErros() {
   setStatus(`Reprocessamento concluído: ${indices.length} registro(s) revisado(s).`);
   pararAnimacaoStatus();
   renderResultados(ultimosResultados); // já reajusta a visibilidade/disabled dos botões de reprocessar
+  avisarSeApiIndisponivel();
   btnProcessar.disabled = false;
   btnReprocessarErros.disabled = false;
   btnReprocessarErros2.disabled = false;
@@ -1227,6 +1319,7 @@ function ajustarAliquota(id, valorDigitado) {
 // as exclusões automáticas. Aplica em TODOS os lançamentos do mesmo CNPJ/CPF ainda marcados
 // como "Fora do escopo" (não só a linha clicada), já que é o mesmo credor em todos os meses.
 async function marcarDentroDoEscopo(id) {
+  iniciarRodadaConsultas();
   const origem = ultimosResultados.find((r) => r.id === id);
   if (!origem) return;
   const docAlvo = onlyDigits(origem.documento);
@@ -2088,9 +2181,14 @@ function calcSelicAcumulada(origemStr, selicData) {
 // ── BrasilAPI address ─────────────────────────────────────────────────────────
 async function fetchEndereco(cnpj) {
   try {
-    const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
-    if (!resp.ok) return null;
-    const d = await resp.json();
+    // Usa primeiro o cartão CNPJ já consultado na apuração (sem nova chamada à API).
+    const cached = cnpjCache.get(cnpj);
+    let d = cached && cached.data;
+    if (!d) {
+      const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
+      if (!resp.ok) return null;
+      d = await resp.json();
+    }
     // A BrasilAPI devolve o tipo do logradouro (RUA, AV, TRAVESSA, RODOVIA...) separado do
     // nome — sem juntar os dois, o endereço sai só com o nome ("DAS FLORES" em vez de
     // "RUA DAS FLORES").
