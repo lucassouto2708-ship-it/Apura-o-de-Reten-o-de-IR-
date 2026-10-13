@@ -2357,39 +2357,49 @@ async function gerarPdfEmpresa(idx, opts = {}) {
   });
 
   // Linha de totais
-  body.push(['TOTAL','','','','','', fmtBRL(somaVB),'', fmtBRL(somaDev), fmtBRL(somaRet), fmtBRL(somaDif),'', fmtBRL(somaAtual)]);
+  // O rótulo ocupa as 6 primeiras colunas (antes ficava só na coluna "#", de 8mm, e quebrava
+  // letra por letra: "TO" / "TAL").
+  body.push([{ content: 'TOTAL', colSpan: 6, styles: { halign: 'left' } }, fmtBRL(somaVB),'', fmtBRL(somaDev), fmtBRL(somaRet), fmtBRL(somaDif),'', fmtBRL(somaAtual)]);
 
-  // Larguras: soma = 262mm para A4 landscape com margens 14mm (269mm disponíveis)
+  // Larguras medidas com o texto real em 6,5pt (+4mm de padding): CNPJ 24,3 · DATA LIQ. 20,2 ·
+  // EMPENHO 17,3 · VALOR 19,8 · cabeçalhos em negrito até 20,6. Antes, DATA ("Janeiro/202"+"5"),
+  // EMPENHO ("1039/202"+"5") e os cabeçalhos "EMPENH"+"O" / "ALÍQ."+"%" quebravam no meio.
+  // Soma = 267,5mm (cabem 269mm na A4 paisagem com margens de 14mm); o resto vai pra CREDOR.
   doc.autoTable({
     head,
     body,
     startY: 24,
     tableWidth: 'wrap',
+    rowPageBreak: 'avoid', // um lançamento nunca é partido entre duas páginas
     styles: { fontSize: 6.5, cellPadding: 2, overflow: 'linebreak', valign: 'middle' },
     headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', halign: 'center', minCellHeight: 8 },
     columnStyles: {
-      0:  { halign: 'center', cellWidth: 8 },
-      1:  { cellWidth: 44 },
+      0:  { halign: 'center', cellWidth: 9 },
+      1:  { cellWidth: 36 },
       2:  { cellWidth: 26 },
-      3:  { cellWidth: 20 },
-      4:  { cellWidth: 16 },
-      5:  { cellWidth: 14 },
+      3:  { cellWidth: 17 },
+      4:  { cellWidth: 22 },
+      5:  { cellWidth: 19 },
       6:  { halign: 'right', cellWidth: 22 },
-      7:  { halign: 'right', cellWidth: 11 },
+      7:  { halign: 'right', cellWidth: 14 },
       8:  { halign: 'right', cellWidth: 22 },
       9:  { halign: 'right', cellWidth: 22 },
       10: { halign: 'right', cellWidth: 22 },
-      11: { halign: 'right', cellWidth: 13 },
+      11: { halign: 'right', cellWidth: 14.5 },
       12: { halign: 'right', cellWidth: 22 },
     },
     didParseCell(data) {
       const lastRow = body.length - 1;
-      if (data.row.index === lastRow) {
+      if (data.section === 'body' && data.row.index === lastRow) {
         data.cell.styles.fontStyle = 'bold';
         data.cell.styles.fillColor = [235, 240, 248];
       }
-      // Diferença negativa em vermelho
-      if (data.column.index === 10 && data.row.index < lastRow) {
+      // CNPJ/CPF formatado nunca quebra de linha.
+      if (data.section === 'body' && data.column.index === 2 && /^[\d.\/-]{11,18}$/.test(String(data.cell.raw || ''))) {
+        data.cell.styles.overflow = 'visible';
+      }
+      // Diferença negativa em vermelho (só no corpo — o cabeçalho ficava vermelho sobre azul)
+      if (data.section === 'body' && data.column.index === 10 && data.row.index < lastRow) {
         const val = regs[data.row.index];
         if (val) {
           const dif = (val.retencaoEsperada || 0) - (val.retencaoTxt || 0);
@@ -2674,6 +2684,15 @@ async function parsePdfExportado(arrayBuffer) {
     row.items.sort((a, b) => a.x - b.x);
     row.text = row.items.map(i => i.text).join(' ');
   }
+
+  // Outros PDFs gerados pelo app têm cabeçalho parecido mas NÃO trazem os lançamentos da
+  // apuração (origem, empenho, valor pago de cada mês) — ler como se fossem geraria lixo
+  // (nome com o nº da linha, CNAE e valores trocados). Reconhece pela linha de cabeçalho da
+  // tabela e avisa em vez de ler. (O PDF por empresa tem ainda um subtítulo "Credor: … CNPJ: …"
+  // no topo, por isso a busca é por cabeçalho de tabela, não só por "Credor" + "CNPJ".)
+  const ehCabecalhoDe = (r, ...palavras) => /credor/i.test(r.text) && /cnpj/i.test(r.text) && palavras.every(w => w.test(r.text));
+  if (rows.some(r => ehCabecalhoDe(r, /selic/i))) return { naoSuportado: 'por-empresa' };
+  if (rows.some(r => ehCabecalhoDe(r, /valor bruto/i, /irrf devido/i))) return { naoSuportado: 'relatorio-geral' };
 
   // Find header row (contains "Credor" AND "CNPJ")
   const hIdx = rows.findIndex(r => /credor/i.test(r.text) && /cnpj/i.test(r.text));
@@ -2976,13 +2995,16 @@ function gerarRelatorioGeralPdf() {
       fmtM(Math.abs(totalDif)),
     ];
   });
-  body.push(['TOTAL','','','', fmtM(somaBruto), fmtM(somaDevido), fmtM(somaRetido), fmtM(Math.abs(somaDif))]);
+  // O rótulo ocupa as 4 primeiras colunas (antes ficava só na coluna "#", de 9mm, e quebrava
+  // letra por letra: "T/O/T/A/L").
+  body.push([{ content: 'TOTAL', colSpan: 4, styles: { halign: 'left' } }, fmtM(somaBruto), fmtM(somaDevido), fmtM(somaRetido), fmtM(Math.abs(somaDif))]);
 
   doc.autoTable({
     head,
     body,
     startY: 26,
     tableWidth: 'wrap',
+    rowPageBreak: 'avoid', // uma empresa nunca é partida entre duas páginas
     styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak', valign: 'middle' },
     headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', halign: 'center', minCellHeight: 9 },
     columnStyles: {
@@ -2997,11 +3019,14 @@ function gerarRelatorioGeralPdf() {
     },
     didParseCell(data) {
       const lastRow = body.length - 1;
-      if (data.row.index === lastRow) {
+      if (data.section === 'body' && data.row.index === lastRow) {
         data.cell.styles.fontStyle = 'bold';
         data.cell.styles.fillColor = [235, 240, 248];
       }
-      if (data.column.index === 7) data.cell.styles.textColor = [192, 57, 43];
+      if (data.section === 'body' && data.column.index === 2 && /^[\d.\/-]{11,18}$/.test(String(data.cell.raw || ''))) {
+        data.cell.styles.overflow = 'visible'; // CNPJ/CPF formatado nunca quebra de linha
+      }
+      if (data.section === 'body' && data.column.index === 7) data.cell.styles.textColor = [192, 57, 43];
     },
     margin: { left: 14, right: 14 },
   });
@@ -3052,6 +3077,12 @@ async function carregarArquivoExportado(file) {
       const buf = await file.arrayBuffer();
       const regs = await parsePdfExportado(buf);
       _nfHideLoading();
+      if (regs && regs.naoSuportado) {
+        alert(regs.naoSuportado === 'relatorio-geral'
+          ? 'Este PDF é o Relatório Geral de Notificações: ele traz só o total de cada empresa, sem os lançamentos mês a mês (origem, empenho) que as notificações precisam.\n\nCarregue aqui o PDF ou o Excel da apuração (botões Exportar na aba Apuração).'
+          : 'Este PDF é o demonstrativo de uma única empresa (já é uma notificação), não traz a apuração completa.\n\nCarregue aqui o PDF ou o Excel da apuração (botões Exportar na aba Apuração).');
+        return;
+      }
       if (!regs || !regs.length) { alert('Não foi possível extrair registros deste PDF.\nCertifique-se de usar um PDF exportado por esta ferramenta.'); return; }
       ultimosResultados = regs;
       salvarResultadosLS(regs);
