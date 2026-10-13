@@ -1858,13 +1858,20 @@ function exportarPdf() {
     head,
     body,
     startY: 24,
+    // Um lançamento com célula de várias linhas (nome longo, origem com vários meses) nunca é
+    // partido entre duas páginas: sem isso, a 1ª linha do nome ficava no fim de uma página e
+    // a continuação sozinha no topo da seguinte.
+    rowPageBreak: 'avoid',
     styles: { fontSize: 6.5, cellPadding: 1.6, overflow: 'linebreak', valign: 'middle' },
     headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', halign: 'center', minCellHeight: 7 },
+    // Coluna 1 (CNPJ/CPF): "00.000.000/0000-00" em 6,5pt precisa de ~23,5mm (texto + padding),
+    // e com 22mm o último dígito caía numa 2ª linha. 25mm deixa folga; os 3mm vêm de CREDOR (-2)
+    // e CNAE (-1) — a soma das colunas continua em 266mm (cabem 269mm na A4 paisagem).
     columnStyles: {
-      0: { cellWidth: 46 },
-      1: { cellWidth: 22 },
+      0: { cellWidth: 44 },
+      1: { cellWidth: 25 },
       2: { cellWidth: 24 },
-      3: { cellWidth: 30 },
+      3: { cellWidth: 29 },
       4: { halign: 'right', cellWidth: 12 },
       5: { cellWidth: 16 },
       6: { cellWidth: 22 },
@@ -1875,6 +1882,10 @@ function exportarPdf() {
     },
     didParseCell(data) {
       if (data.section !== 'body') return;
+      // CNPJ/CPF formatado nunca quebra de linha (mesmo que a fonte/largura mude um pouco).
+      if (data.column.index === 1 && /^[\d.\/-]{11,18}$/.test(String(data.cell.raw || ''))) {
+        data.cell.styles.overflow = 'visible';
+      }
       const meta = rowMeta[data.row.index];
       if (data.column.index === 10 && meta) {
         data.cell.styles.textColor = meta === 'diff' ? [192, 57, 43] : [22, 131, 91];
@@ -1963,6 +1974,20 @@ tabBtnNotif.addEventListener('click', () => {
 let empresasNotif = [];   // built by renderNotifTab(), indexed by gerarXxx(idx)
 let notifOrdenacao = 'diferenca-desc';
 
+// Valor mínimo de diferença escolhido pelo usuário: empresas abaixo dele saem de
+// empresasNotif, então somem dos cards, do total geral e de todas as gerações em lote
+// (DOCX, XLSX, ZIP e Relatório Geral). 0 = sem filtro (vale só o mínimo fixo abaixo).
+let notifValorMinimo = 0;
+
+// Empresas que o usuário tirou da lista de notificações no botão "Remover da lista" (chave =
+// CNPJ/CPF só com dígitos, ou o nome). Só afeta a aba Notificações — a apuração geral continua
+// com todas as linhas. Zerado quando a apuração é limpa.
+const notifEmpresasRemovidas = new Set();
+
+function chaveEmpresaNotif(emp) {
+  return onlyDigits(emp.documento) || emp.nome;
+}
+
 // Calcula os totais de uma empresa (usado tanto pra ordenar quanto pra desenhar o card) —
 // centraliza a conta pra não duplicar a lógica em dois lugares que podem desalinhar.
 function totaisEmpresa(emp) {
@@ -1991,7 +2016,48 @@ function ordenarEmpresasNotif(lista, criterio) {
 }
 
 document.getElementById('nf-ordenar-select').addEventListener('change', (e) => {
+  if (e.target.value === '__filtro__') {
+    // Não é um critério de ordenação: só revela o campo de valor mínimo e mantém a ordenação.
+    e.target.value = notifOrdenacao;
+    document.getElementById('nf-filtro-valor').style.display = 'flex';
+    document.getElementById('nf-filtro-valor-input').focus();
+    return;
+  }
   notifOrdenacao = e.target.value;
+  renderNotifTab();
+});
+
+// Espera o usuário parar de digitar (300ms) antes de redesenhar a aba — sem isso, cada tecla
+// reagrupava e redesenhava todas as empresas.
+let _nfFiltroTimer = null;
+document.getElementById('nf-filtro-valor-input').addEventListener('input', (e) => {
+  clearTimeout(_nfFiltroTimer);
+  const valor = e.target.value;
+  _nfFiltroTimer = setTimeout(() => {
+    notifValorMinimo = Math.max(parseFloat(valor) || 0, 0);
+    renderNotifTab();
+  }, 300);
+});
+
+document.getElementById('nf-filtro-valor-limpar').addEventListener('click', () => {
+  clearTimeout(_nfFiltroTimer);
+  notifValorMinimo = 0;
+  document.getElementById('nf-filtro-valor-input').value = '';
+  document.getElementById('nf-filtro-valor').style.display = 'none';
+  renderNotifTab();
+});
+
+// Tira uma empresa da lista de notificações (some do card, do total geral e de todas as
+// gerações em lote). Dá pra desfazer em "Restaurar".
+function removerEmpresaNotif(idx) {
+  const emp = empresasNotif[idx];
+  if (!emp) return;
+  notifEmpresasRemovidas.add(chaveEmpresaNotif(emp));
+  renderNotifTab();
+}
+
+document.getElementById('nf-removidas-restaurar').addEventListener('click', () => {
+  notifEmpresasRemovidas.clear();
   renderNotifTab();
 });
 
@@ -2042,6 +2108,7 @@ function renderNotifTab(fonteLabel) {
   const toolbar    = document.getElementById('nf-toolbar');
 
   if (!ultimosResultados.length) {
+    notifEmpresasRemovidas.clear(); // apuração limpa: começa do zero na próxima
     container.innerHTML = '';
     emptyEl.style.display = '';
     sessionBar.style.display = 'none';
@@ -2052,9 +2119,21 @@ function renderNotifTab(fonteLabel) {
   emptyEl.style.display = 'none';
   sessionBar.style.display = 'flex';
   toolbar.style.display = 'flex';
-  empresasNotif = ordenarEmpresasNotif(agruparPorEmpresa(ultimosResultados), notifOrdenacao);
+  const todasEmpresas = ordenarEmpresasNotif(agruparPorEmpresa(ultimosResultados), notifOrdenacao);
+  const empresasFiltradas = todasEmpresas.filter(emp => Math.abs(totaisEmpresa(emp).totalDif) >= notifValorMinimo);
+  empresasNotif = empresasFiltradas.filter(emp => !notifEmpresasRemovidas.has(chaveEmpresaNotif(emp)));
   const prefix = fonteLabel ? fonteLabel.trim() + ' — ' : '';
-  sessionLbl.textContent = prefix + `${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência`;
+  const sufixoFiltro = notifValorMinimo > 0
+    ? ` (de ${todasEmpresas.length}, filtrando diferença a partir de ${formatMoeda(notifValorMinimo)})`
+    : '';
+  sessionLbl.textContent = prefix + `${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência` + sufixoFiltro;
+
+  // Aviso de empresas removidas à mão (só conta as que ainda entrariam na lista).
+  const qtdRemovidas = empresasFiltradas.length - empresasNotif.length;
+  const removidasEl = document.getElementById('nf-removidas');
+  removidasEl.style.display = qtdRemovidas > 0 ? 'flex' : 'none';
+  document.getElementById('nf-removidas-txt').textContent =
+    `${qtdRemovidas} empresa${qtdRemovidas !== 1 ? 's' : ''} removida${qtdRemovidas !== 1 ? 's' : ''} da lista`;
   document.getElementById('nf-gerar-todas').style.display = 'flex';
   document.getElementById('nf-ordenar-select').value = notifOrdenacao;
 
@@ -2080,6 +2159,7 @@ function renderNotifTab(fonteLabel) {
         <button class="btn-docx" onclick="gerarDocxEmpresa(${idx})">📄 Gerar DOCX</button>
         <button class="btn-xlsx" onclick="gerarXlsxEmpresa(${idx})">📊 Gerar XLSX</button>
         <button class="btn-pdf" onclick="gerarPdfEmpresa(${idx})">🖨️ Gerar PDF</button>
+        <button class="secondary btn-remover-empresa" title="Tirar esta empresa da lista de notificações (a apuração não muda)" onclick="removerEmpresaNotif(${idx})">✕ Remover da lista</button>
       </div>
     </div>`;
   }).join('');
@@ -2277,39 +2357,49 @@ async function gerarPdfEmpresa(idx, opts = {}) {
   });
 
   // Linha de totais
-  body.push(['TOTAL','','','','','', fmtBRL(somaVB),'', fmtBRL(somaDev), fmtBRL(somaRet), fmtBRL(somaDif),'', fmtBRL(somaAtual)]);
+  // O rótulo ocupa as 6 primeiras colunas (antes ficava só na coluna "#", de 8mm, e quebrava
+  // letra por letra: "TO" / "TAL").
+  body.push([{ content: 'TOTAL', colSpan: 6, styles: { halign: 'left' } }, fmtBRL(somaVB),'', fmtBRL(somaDev), fmtBRL(somaRet), fmtBRL(somaDif),'', fmtBRL(somaAtual)]);
 
-  // Larguras: soma = 262mm para A4 landscape com margens 14mm (269mm disponíveis)
+  // Larguras medidas com o texto real em 6,5pt (+4mm de padding): CNPJ 24,3 · DATA LIQ. 20,2 ·
+  // EMPENHO 17,3 · VALOR 19,8 · cabeçalhos em negrito até 20,6. Antes, DATA ("Janeiro/202"+"5"),
+  // EMPENHO ("1039/202"+"5") e os cabeçalhos "EMPENH"+"O" / "ALÍQ."+"%" quebravam no meio.
+  // Soma = 267,5mm (cabem 269mm na A4 paisagem com margens de 14mm); o resto vai pra CREDOR.
   doc.autoTable({
     head,
     body,
     startY: 24,
     tableWidth: 'wrap',
+    rowPageBreak: 'avoid', // um lançamento nunca é partido entre duas páginas
     styles: { fontSize: 6.5, cellPadding: 2, overflow: 'linebreak', valign: 'middle' },
     headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', halign: 'center', minCellHeight: 8 },
     columnStyles: {
-      0:  { halign: 'center', cellWidth: 8 },
-      1:  { cellWidth: 44 },
+      0:  { halign: 'center', cellWidth: 9 },
+      1:  { cellWidth: 36 },
       2:  { cellWidth: 26 },
-      3:  { cellWidth: 20 },
-      4:  { cellWidth: 16 },
-      5:  { cellWidth: 14 },
+      3:  { cellWidth: 17 },
+      4:  { cellWidth: 22 },
+      5:  { cellWidth: 19 },
       6:  { halign: 'right', cellWidth: 22 },
-      7:  { halign: 'right', cellWidth: 11 },
+      7:  { halign: 'right', cellWidth: 14 },
       8:  { halign: 'right', cellWidth: 22 },
       9:  { halign: 'right', cellWidth: 22 },
       10: { halign: 'right', cellWidth: 22 },
-      11: { halign: 'right', cellWidth: 13 },
+      11: { halign: 'right', cellWidth: 14.5 },
       12: { halign: 'right', cellWidth: 22 },
     },
     didParseCell(data) {
       const lastRow = body.length - 1;
-      if (data.row.index === lastRow) {
+      if (data.section === 'body' && data.row.index === lastRow) {
         data.cell.styles.fontStyle = 'bold';
         data.cell.styles.fillColor = [235, 240, 248];
       }
-      // Diferença negativa em vermelho
-      if (data.column.index === 10 && data.row.index < lastRow) {
+      // CNPJ/CPF formatado nunca quebra de linha.
+      if (data.section === 'body' && data.column.index === 2 && /^[\d.\/-]{11,18}$/.test(String(data.cell.raw || ''))) {
+        data.cell.styles.overflow = 'visible';
+      }
+      // Diferença negativa em vermelho (só no corpo — o cabeçalho ficava vermelho sobre azul)
+      if (data.section === 'body' && data.column.index === 10 && data.row.index < lastRow) {
         const val = regs[data.row.index];
         if (val) {
           const dif = (val.retencaoEsperada || 0) - (val.retencaoTxt || 0);
@@ -2582,7 +2672,7 @@ async function parsePdfExportado(arrayBuffer) {
     }
   }
 
-  // Group into rows by (page, y) with tolerance
+  // Group into rows by (page, y) with tolerance — usado só pra achar o cabeçalho e as colunas.
   const TOL = 4;
   const rows = [];
   for (const item of allItems.sort((a, b) => a.page - b.page || a.y - b.y)) {
@@ -2594,6 +2684,15 @@ async function parsePdfExportado(arrayBuffer) {
     row.items.sort((a, b) => a.x - b.x);
     row.text = row.items.map(i => i.text).join(' ');
   }
+
+  // Outros PDFs gerados pelo app têm cabeçalho parecido mas NÃO trazem os lançamentos da
+  // apuração (origem, empenho, valor pago de cada mês) — ler como se fossem geraria lixo
+  // (nome com o nº da linha, CNAE e valores trocados). Reconhece pela linha de cabeçalho da
+  // tabela e avisa em vez de ler. (O PDF por empresa tem ainda um subtítulo "Credor: … CNPJ: …"
+  // no topo, por isso a busca é por cabeçalho de tabela, não só por "Credor" + "CNPJ".)
+  const ehCabecalhoDe = (r, ...palavras) => /credor/i.test(r.text) && /cnpj/i.test(r.text) && palavras.every(w => w.test(r.text));
+  if (rows.some(r => ehCabecalhoDe(r, /selic/i))) return { naoSuportado: 'por-empresa' };
+  if (rows.some(r => ehCabecalhoDe(r, /valor bruto/i, /irrf devido/i))) return { naoSuportado: 'relatorio-geral' };
 
   // Find header row (contains "Credor" AND "CNPJ")
   const hIdx = rows.findIndex(r => /credor/i.test(r.text) && /cnpj/i.test(r.text));
@@ -2640,18 +2739,64 @@ async function parsePdfExportado(arrayBuffer) {
     return neg ? -Math.abs(num) : num;
   };
 
-  const registros = [];
-  for (let i = hIdx + 1; i < rows.length; i++) {
-    const row = rows[i];
-    if (row.items.length < 3) continue;
-    // Skip month-divider rows (few columns, uppercase-ish short text)
-    if (row.items.length <= 2) continue;
+  // Um lançamento do PDF pode ocupar VÁRIAS linhas de texto quando alguma célula quebra (o
+  // CNPJ "29.979.036/0090-1" + "6", nome do credor longo, origem com vários meses...), e as
+  // células de uma linha só ficam centralizadas na vertical, no meio. Por isso o agrupamento por
+  // "mesma altura" separava a continuação do resto e o CNPJ saía com um dígito a menos. Aqui,
+  // todo texto da mesma página com menos de GAP_LINHA pontos de distância do anterior pertence
+  // ao mesmo lançamento (linhas de texto dentro de uma célula ficam a ~7,5pt; de um lançamento
+  // pro seguinte, a >=16pt), e cada coluna junta seus pedaços de cima pra baixo.
+  const GAP_LINHA = 11;
+  const hRow = rows[hIdx];
+  const depoisDoCabecalho = allItems
+    .filter(it => it.page > hRow.page || (it.page === hRow.page && it.y > hRow.y + TOL))
+    .sort((a, b) => a.page - b.page || a.y - b.y || a.x - b.x);
+  const lancamentos = [];
+  let atual = null, ultimoY = -Infinity;
+  for (const item of depoisDoCabecalho) {
+    if (!atual || atual.page !== item.page || item.y - ultimoY > GAP_LINHA) {
+      atual = { page: item.page, items: [] };
+      lancamentos.push(atual);
+    }
+    atual.items.push(item);
+    ultimoY = item.y;
+  }
 
+  // Primeiro monta o texto bruto de cada coluna por lançamento.
+  const brutos = [];
+  let logoAposCabecalho = false;
+  for (const lanc of lancamentos) {
     const rec = {};
-    for (const item of row.items) {
+    for (const item of lanc.items) { // já em ordem de cima pra baixo, depois esquerda pra direita
       const col = assignCol(item);
       rec[col] = rec[col] ? rec[col] + ' ' + item.text : item.text;
     }
+    // Só é um lançamento se tiver CNPJ/CPF na coluna de documento (ignora título da página,
+    // cabeçalho repetido, rodapé "Página x de y" etc.).
+    if (/^\d[\d.\/-]{5,}/.test((rec.documento || '').trim())) {
+      brutos.push(rec);
+      logoAposCabecalho = false;
+      continue;
+    }
+    const textoLinha = lanc.items.map(i => i.text).join(' ');
+    if (/credor/i.test(textoLinha) && /cnpj/i.test(textoLinha)) {
+      logoAposCabecalho = true; // cabeçalho repetido no topo da página
+      continue;
+    }
+    // PDFs antigos partiam o lançamento entre duas páginas: a continuação (nome, origem, ou o
+    // último dígito do CNPJ) aparece sozinha logo abaixo do cabeçalho repetido da página
+    // seguinte. Junta de volta no lançamento anterior.
+    if (logoAposCabecalho && brutos.length) {
+      const anterior = brutos[brutos.length - 1];
+      for (const [col, texto] of Object.entries(rec)) {
+        anterior[col] = anterior[col] ? anterior[col] + ' ' + texto : texto;
+      }
+    }
+    logoAposCabecalho = false;
+  }
+
+  const registros = [];
+  for (const rec of brutos) {
     if (!rec.nome || !rec.nome.trim()) continue;
     // Skip header repetitions on new pages
     if (/credor/i.test(rec.nome) && /cnpj/i.test(rec.documento || '')) continue;
@@ -2850,13 +2995,16 @@ function gerarRelatorioGeralPdf() {
       fmtM(Math.abs(totalDif)),
     ];
   });
-  body.push(['TOTAL','','','', fmtM(somaBruto), fmtM(somaDevido), fmtM(somaRetido), fmtM(Math.abs(somaDif))]);
+  // O rótulo ocupa as 4 primeiras colunas (antes ficava só na coluna "#", de 9mm, e quebrava
+  // letra por letra: "T/O/T/A/L").
+  body.push([{ content: 'TOTAL', colSpan: 4, styles: { halign: 'left' } }, fmtM(somaBruto), fmtM(somaDevido), fmtM(somaRetido), fmtM(Math.abs(somaDif))]);
 
   doc.autoTable({
     head,
     body,
     startY: 26,
     tableWidth: 'wrap',
+    rowPageBreak: 'avoid', // uma empresa nunca é partida entre duas páginas
     styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak', valign: 'middle' },
     headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', halign: 'center', minCellHeight: 9 },
     columnStyles: {
@@ -2871,11 +3019,14 @@ function gerarRelatorioGeralPdf() {
     },
     didParseCell(data) {
       const lastRow = body.length - 1;
-      if (data.row.index === lastRow) {
+      if (data.section === 'body' && data.row.index === lastRow) {
         data.cell.styles.fontStyle = 'bold';
         data.cell.styles.fillColor = [235, 240, 248];
       }
-      if (data.column.index === 7) data.cell.styles.textColor = [192, 57, 43];
+      if (data.section === 'body' && data.column.index === 2 && /^[\d.\/-]{11,18}$/.test(String(data.cell.raw || ''))) {
+        data.cell.styles.overflow = 'visible'; // CNPJ/CPF formatado nunca quebra de linha
+      }
+      if (data.section === 'body' && data.column.index === 7) data.cell.styles.textColor = [192, 57, 43];
     },
     margin: { left: 14, right: 14 },
   });
@@ -2926,6 +3077,12 @@ async function carregarArquivoExportado(file) {
       const buf = await file.arrayBuffer();
       const regs = await parsePdfExportado(buf);
       _nfHideLoading();
+      if (regs && regs.naoSuportado) {
+        alert(regs.naoSuportado === 'relatorio-geral'
+          ? 'Este PDF é o Relatório Geral de Notificações: ele traz só o total de cada empresa, sem os lançamentos mês a mês (origem, empenho) que as notificações precisam.\n\nCarregue aqui o PDF ou o Excel da apuração (botões Exportar na aba Apuração).'
+          : 'Este PDF é o demonstrativo de uma única empresa (já é uma notificação), não traz a apuração completa.\n\nCarregue aqui o PDF ou o Excel da apuração (botões Exportar na aba Apuração).');
+        return;
+      }
       if (!regs || !regs.length) { alert('Não foi possível extrair registros deste PDF.\nCertifique-se de usar um PDF exportado por esta ferramenta.'); return; }
       ultimosResultados = regs;
       salvarResultadosLS(regs);
