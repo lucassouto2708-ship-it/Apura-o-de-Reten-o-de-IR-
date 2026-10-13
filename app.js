@@ -1963,6 +1963,20 @@ tabBtnNotif.addEventListener('click', () => {
 let empresasNotif = [];   // built by renderNotifTab(), indexed by gerarXxx(idx)
 let notifOrdenacao = 'diferenca-desc';
 
+// Valor mínimo de diferença escolhido pelo usuário: empresas abaixo dele saem de
+// empresasNotif, então somem dos cards, do total geral e de todas as gerações em lote
+// (DOCX, XLSX, ZIP e Relatório Geral). 0 = sem filtro (vale só o mínimo fixo abaixo).
+let notifValorMinimo = 0;
+
+// Empresas que o usuário tirou da lista de notificações no botão "Remover da lista" (chave =
+// CNPJ/CPF só com dígitos, ou o nome). Só afeta a aba Notificações — a apuração geral continua
+// com todas as linhas. Zerado quando a apuração é limpa.
+const notifEmpresasRemovidas = new Set();
+
+function chaveEmpresaNotif(emp) {
+  return onlyDigits(emp.documento) || emp.nome;
+}
+
 // Calcula os totais de uma empresa (usado tanto pra ordenar quanto pra desenhar o card) —
 // centraliza a conta pra não duplicar a lógica em dois lugares que podem desalinhar.
 function totaisEmpresa(emp) {
@@ -1991,7 +2005,48 @@ function ordenarEmpresasNotif(lista, criterio) {
 }
 
 document.getElementById('nf-ordenar-select').addEventListener('change', (e) => {
+  if (e.target.value === '__filtro__') {
+    // Não é um critério de ordenação: só revela o campo de valor mínimo e mantém a ordenação.
+    e.target.value = notifOrdenacao;
+    document.getElementById('nf-filtro-valor').style.display = 'flex';
+    document.getElementById('nf-filtro-valor-input').focus();
+    return;
+  }
   notifOrdenacao = e.target.value;
+  renderNotifTab();
+});
+
+// Espera o usuário parar de digitar (300ms) antes de redesenhar a aba — sem isso, cada tecla
+// reagrupava e redesenhava todas as empresas.
+let _nfFiltroTimer = null;
+document.getElementById('nf-filtro-valor-input').addEventListener('input', (e) => {
+  clearTimeout(_nfFiltroTimer);
+  const valor = e.target.value;
+  _nfFiltroTimer = setTimeout(() => {
+    notifValorMinimo = Math.max(parseFloat(valor) || 0, 0);
+    renderNotifTab();
+  }, 300);
+});
+
+document.getElementById('nf-filtro-valor-limpar').addEventListener('click', () => {
+  clearTimeout(_nfFiltroTimer);
+  notifValorMinimo = 0;
+  document.getElementById('nf-filtro-valor-input').value = '';
+  document.getElementById('nf-filtro-valor').style.display = 'none';
+  renderNotifTab();
+});
+
+// Tira uma empresa da lista de notificações (some do card, do total geral e de todas as
+// gerações em lote). Dá pra desfazer em "Restaurar".
+function removerEmpresaNotif(idx) {
+  const emp = empresasNotif[idx];
+  if (!emp) return;
+  notifEmpresasRemovidas.add(chaveEmpresaNotif(emp));
+  renderNotifTab();
+}
+
+document.getElementById('nf-removidas-restaurar').addEventListener('click', () => {
+  notifEmpresasRemovidas.clear();
   renderNotifTab();
 });
 
@@ -2042,6 +2097,7 @@ function renderNotifTab(fonteLabel) {
   const toolbar    = document.getElementById('nf-toolbar');
 
   if (!ultimosResultados.length) {
+    notifEmpresasRemovidas.clear(); // apuração limpa: começa do zero na próxima
     container.innerHTML = '';
     emptyEl.style.display = '';
     sessionBar.style.display = 'none';
@@ -2052,9 +2108,21 @@ function renderNotifTab(fonteLabel) {
   emptyEl.style.display = 'none';
   sessionBar.style.display = 'flex';
   toolbar.style.display = 'flex';
-  empresasNotif = ordenarEmpresasNotif(agruparPorEmpresa(ultimosResultados), notifOrdenacao);
+  const todasEmpresas = ordenarEmpresasNotif(agruparPorEmpresa(ultimosResultados), notifOrdenacao);
+  const empresasFiltradas = todasEmpresas.filter(emp => Math.abs(totaisEmpresa(emp).totalDif) >= notifValorMinimo);
+  empresasNotif = empresasFiltradas.filter(emp => !notifEmpresasRemovidas.has(chaveEmpresaNotif(emp)));
   const prefix = fonteLabel ? fonteLabel.trim() + ' — ' : '';
-  sessionLbl.textContent = prefix + `${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência`;
+  const sufixoFiltro = notifValorMinimo > 0
+    ? ` (de ${todasEmpresas.length}, filtrando diferença a partir de ${formatMoeda(notifValorMinimo)})`
+    : '';
+  sessionLbl.textContent = prefix + `${empresasNotif.length} empresa${empresasNotif.length !== 1 ? 's' : ''} com divergência` + sufixoFiltro;
+
+  // Aviso de empresas removidas à mão (só conta as que ainda entrariam na lista).
+  const qtdRemovidas = empresasFiltradas.length - empresasNotif.length;
+  const removidasEl = document.getElementById('nf-removidas');
+  removidasEl.style.display = qtdRemovidas > 0 ? 'flex' : 'none';
+  document.getElementById('nf-removidas-txt').textContent =
+    `${qtdRemovidas} empresa${qtdRemovidas !== 1 ? 's' : ''} removida${qtdRemovidas !== 1 ? 's' : ''} da lista`;
   document.getElementById('nf-gerar-todas').style.display = 'flex';
   document.getElementById('nf-ordenar-select').value = notifOrdenacao;
 
@@ -2080,6 +2148,7 @@ function renderNotifTab(fonteLabel) {
         <button class="btn-docx" onclick="gerarDocxEmpresa(${idx})">📄 Gerar DOCX</button>
         <button class="btn-xlsx" onclick="gerarXlsxEmpresa(${idx})">📊 Gerar XLSX</button>
         <button class="btn-pdf" onclick="gerarPdfEmpresa(${idx})">🖨️ Gerar PDF</button>
+        <button class="secondary btn-remover-empresa" title="Tirar esta empresa da lista de notificações (a apuração não muda)" onclick="removerEmpresaNotif(${idx})">✕ Remover da lista</button>
       </div>
     </div>`;
   }).join('');
