@@ -1858,13 +1858,20 @@ function exportarPdf() {
     head,
     body,
     startY: 24,
+    // Um lançamento com célula de várias linhas (nome longo, origem com vários meses) nunca é
+    // partido entre duas páginas: sem isso, a 1ª linha do nome ficava no fim de uma página e
+    // a continuação sozinha no topo da seguinte.
+    rowPageBreak: 'avoid',
     styles: { fontSize: 6.5, cellPadding: 1.6, overflow: 'linebreak', valign: 'middle' },
     headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', halign: 'center', minCellHeight: 7 },
+    // Coluna 1 (CNPJ/CPF): "00.000.000/0000-00" em 6,5pt precisa de ~23,5mm (texto + padding),
+    // e com 22mm o último dígito caía numa 2ª linha. 25mm deixa folga; os 3mm vêm de CREDOR (-2)
+    // e CNAE (-1) — a soma das colunas continua em 266mm (cabem 269mm na A4 paisagem).
     columnStyles: {
-      0: { cellWidth: 46 },
-      1: { cellWidth: 22 },
+      0: { cellWidth: 44 },
+      1: { cellWidth: 25 },
       2: { cellWidth: 24 },
-      3: { cellWidth: 30 },
+      3: { cellWidth: 29 },
       4: { halign: 'right', cellWidth: 12 },
       5: { cellWidth: 16 },
       6: { cellWidth: 22 },
@@ -1875,6 +1882,10 @@ function exportarPdf() {
     },
     didParseCell(data) {
       if (data.section !== 'body') return;
+      // CNPJ/CPF formatado nunca quebra de linha (mesmo que a fonte/largura mude um pouco).
+      if (data.column.index === 1 && /^[\d.\/-]{11,18}$/.test(String(data.cell.raw || ''))) {
+        data.cell.styles.overflow = 'visible';
+      }
       const meta = rowMeta[data.row.index];
       if (data.column.index === 10 && meta) {
         data.cell.styles.textColor = meta === 'diff' ? [192, 57, 43] : [22, 131, 91];
@@ -2651,7 +2662,7 @@ async function parsePdfExportado(arrayBuffer) {
     }
   }
 
-  // Group into rows by (page, y) with tolerance
+  // Group into rows by (page, y) with tolerance — usado só pra achar o cabeçalho e as colunas.
   const TOL = 4;
   const rows = [];
   for (const item of allItems.sort((a, b) => a.page - b.page || a.y - b.y)) {
@@ -2709,18 +2720,64 @@ async function parsePdfExportado(arrayBuffer) {
     return neg ? -Math.abs(num) : num;
   };
 
-  const registros = [];
-  for (let i = hIdx + 1; i < rows.length; i++) {
-    const row = rows[i];
-    if (row.items.length < 3) continue;
-    // Skip month-divider rows (few columns, uppercase-ish short text)
-    if (row.items.length <= 2) continue;
+  // Um lançamento do PDF pode ocupar VÁRIAS linhas de texto quando alguma célula quebra (o
+  // CNPJ "29.979.036/0090-1" + "6", nome do credor longo, origem com vários meses...), e as
+  // células de uma linha só ficam centralizadas na vertical, no meio. Por isso o agrupamento por
+  // "mesma altura" separava a continuação do resto e o CNPJ saía com um dígito a menos. Aqui,
+  // todo texto da mesma página com menos de GAP_LINHA pontos de distância do anterior pertence
+  // ao mesmo lançamento (linhas de texto dentro de uma célula ficam a ~7,5pt; de um lançamento
+  // pro seguinte, a >=16pt), e cada coluna junta seus pedaços de cima pra baixo.
+  const GAP_LINHA = 11;
+  const hRow = rows[hIdx];
+  const depoisDoCabecalho = allItems
+    .filter(it => it.page > hRow.page || (it.page === hRow.page && it.y > hRow.y + TOL))
+    .sort((a, b) => a.page - b.page || a.y - b.y || a.x - b.x);
+  const lancamentos = [];
+  let atual = null, ultimoY = -Infinity;
+  for (const item of depoisDoCabecalho) {
+    if (!atual || atual.page !== item.page || item.y - ultimoY > GAP_LINHA) {
+      atual = { page: item.page, items: [] };
+      lancamentos.push(atual);
+    }
+    atual.items.push(item);
+    ultimoY = item.y;
+  }
 
+  // Primeiro monta o texto bruto de cada coluna por lançamento.
+  const brutos = [];
+  let logoAposCabecalho = false;
+  for (const lanc of lancamentos) {
     const rec = {};
-    for (const item of row.items) {
+    for (const item of lanc.items) { // já em ordem de cima pra baixo, depois esquerda pra direita
       const col = assignCol(item);
       rec[col] = rec[col] ? rec[col] + ' ' + item.text : item.text;
     }
+    // Só é um lançamento se tiver CNPJ/CPF na coluna de documento (ignora título da página,
+    // cabeçalho repetido, rodapé "Página x de y" etc.).
+    if (/^\d[\d.\/-]{5,}/.test((rec.documento || '').trim())) {
+      brutos.push(rec);
+      logoAposCabecalho = false;
+      continue;
+    }
+    const textoLinha = lanc.items.map(i => i.text).join(' ');
+    if (/credor/i.test(textoLinha) && /cnpj/i.test(textoLinha)) {
+      logoAposCabecalho = true; // cabeçalho repetido no topo da página
+      continue;
+    }
+    // PDFs antigos partiam o lançamento entre duas páginas: a continuação (nome, origem, ou o
+    // último dígito do CNPJ) aparece sozinha logo abaixo do cabeçalho repetido da página
+    // seguinte. Junta de volta no lançamento anterior.
+    if (logoAposCabecalho && brutos.length) {
+      const anterior = brutos[brutos.length - 1];
+      for (const [col, texto] of Object.entries(rec)) {
+        anterior[col] = anterior[col] ? anterior[col] + ' ' + texto : texto;
+      }
+    }
+    logoAposCabecalho = false;
+  }
+
+  const registros = [];
+  for (const rec of brutos) {
     if (!rec.nome || !rec.nome.trim()) continue;
     // Skip header repetitions on new pages
     if (/credor/i.test(rec.nome) && /cnpj/i.test(rec.documento || '')) continue;
