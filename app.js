@@ -742,7 +742,7 @@ function cnpjDesistidoNaRodada(cnpj) {
 // o resto da rodada não consulta mais nada — os CNPJs que faltam viram erro na hora, com uma
 // mensagem clara — em vez de deixar a tela "Processando" por horas sem chance de dar certo.
 const CNPJS_FALHOS_SEGUIDOS_LIMITE = 5;
-const MSG_API_INDISPONIVEL = 'BrasilAPI indisponível no momento — use "Reprocessar erros" mais tarde';
+const MSG_API_INDISPONIVEL = 'Serviços de consulta de CNPJ indisponíveis no momento — use "Reprocessar erros" mais tarde';
 let cnpjsFalhosSeguidos = 0;
 let apiIndisponivelNaRodada = false;
 
@@ -755,7 +755,36 @@ function iniciarRodadaConsultas() {
 // Mostra o aviso no fim de uma rodada em que a BrasilAPI caiu.
 function avisarSeApiIndisponivel() {
   if (!apiIndisponivelNaRodada) return;
-  showError('A consulta de CNPJ da BrasilAPI está fora do ar ou instável agora — por isso os lançamentos de alguns fornecedores ficaram com erro. Nada foi perdido: o que já foi consultado fica salvo. Tente "Reprocessar erros" mais tarde.');
+  showError('As consultas de CNPJ (BrasilAPI e Minha Receita) estão fora do ar ou instáveis agora — por isso os lançamentos de alguns fornecedores ficaram com erro. Nada foi perdido: o que já foi consultado fica salvo. Tente "Reprocessar erros" mais tarde.');
+}
+
+// Fontes de consulta de CNPJ, em ordem de preferência. A Minha Receita devolve o mesmo
+// formato da BrasilAPI, então entra como reserva sem nenhuma conversão.
+const FONTES_CNPJ = [
+  (cnpj) => `https://brasilapi.com.br/api/cnpj/v1/${cnpj}`,
+  (cnpj) => `https://minhareceita.org/${cnpj}`,
+];
+
+// Tenta cada fonte (timeout de 12s) e passa para a próxima em caso de 429, 5xx, timeout ou
+// falha de rede. Respostas definitivas (ok, 404 e demais 4xx) são devolvidas na hora.
+async function fetchCnpjComFallback(cnpj) {
+  let ultimaResp = null;
+  let ultimoErro = null;
+  for (const montarUrl of FONTES_CNPJ) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    try {
+      const resp = await fetch(montarUrl(cnpj), { signal: controller.signal });
+      if (resp.ok || (resp.status < 500 && resp.status !== 429)) return resp;
+      ultimaResp = resp;
+    } catch (e) {
+      ultimoErro = e;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+  if (ultimaResp) return ultimaResp;
+  throw ultimoErro || new Error('Falha ao consultar o CNPJ');
 }
 
 async function consultaCnpjComRetry(cnpj, tentativas = 5) {
@@ -775,14 +804,7 @@ async function consultaCnpjComRetry(cnpj, tentativas = 5) {
       // Timeout de 12s por tentativa — sem isso, uma falha de rede momentânea (DNS lento,
       // conexão instável) pode deixar o fetch "pendurado" bem mais tempo que o necessário
       // antes de sequer cair no catch e tentar de novo.
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
-      let resp;
-      try {
-        resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, { signal: controller.signal });
-      } finally {
-        clearTimeout(timeoutId);
-      }
+      const resp = await fetchCnpjComFallback(cnpj);
       if (resp.status === 429) {
         await sleep(800 * (i + 1));
         continue;
@@ -2273,7 +2295,7 @@ async function fetchEndereco(cnpj) {
     const cached = cnpjCache.get(cnpj);
     let d = cached && cached.data;
     if (!d) {
-      const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
+      const resp = await fetchCnpjComFallback(cnpj);
       if (!resp.ok) return null;
       d = await resp.json();
     }
